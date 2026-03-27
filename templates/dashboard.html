@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>OSCAR2 Dashboard</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'Segoe UI', Tahoma, sans-serif;
+            background: #0f1923;
+            color: #e0e0e0;
+            padding: 20px;
+        }
+        h1 {
+            text-align: center;
+            font-size: 1.8em;
+            margin-bottom: 8px;
+            color: #4fc3f7;
+        }
+        .subtitle {
+            text-align: center;
+            color: #78909c;
+            margin-bottom: 24px;
+            font-size: 0.9em;
+        }
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(400px, 1fr));
+            gap: 16px;
+            margin-bottom: 32px;
+        }
+        .card {
+            background: #1a2733;
+            border-radius: 10px;
+            padding: 20px;
+            border-left: 4px solid #546e7a;
+            transition: border-color 0.3s;
+        }
+        .card.RUNNING  { border-left-color: #4caf50; }
+        .card.STALLED  { border-left-color: #ff9800; }
+        .card.DEAD     { border-left-color: #f44336; }
+        .card.COMPLETED { border-left-color: #2196f3; }
+        .card.UNKNOWN  { border-left-color: #78909c; }
+        .card-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 12px;
+        }
+        .card-title { font-size: 1.2em; font-weight: 600; }
+        .status-badge {
+            padding: 4px 12px;
+            border-radius: 12px;
+            font-size: 0.8em;
+            font-weight: 700;
+            text-transform: uppercase;
+        }
+        .status-badge.RUNNING  { background: #1b5e20; color: #a5d6a7; }
+        .status-badge.STALLED  { background: #e65100; color: #ffe0b2; }
+        .status-badge.DEAD     { background: #b71c1c; color: #ef9a9a; }
+        .status-badge.COMPLETED { background: #0d47a1; color: #90caf9; }
+        .status-badge.UNKNOWN  { background: #37474f; color: #b0bec5; }
+        .card-info {
+            font-size: 0.85em;
+            color: #90a4ae;
+            line-height: 1.8;
+        }
+        .card-info span { color: #cfd8dc; }
+        .card-actions {
+            margin-top: 12px;
+            display: flex;
+            gap: 8px;
+        }
+        .btn {
+            padding: 6px 16px;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 0.8em;
+            font-weight: 600;
+            transition: opacity 0.2s;
+        }
+        .btn:hover { opacity: 0.8; }
+        .btn-start   { background: #2e7d32; color: white; }
+        .btn-stop    { background: #c62828; color: white; }
+        .btn-restart { background: #ef6c00; color: white; }
+
+        h2 {
+            font-size: 1.3em;
+            color: #4fc3f7;
+            margin-bottom: 12px;
+        }
+        .events-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 0.85em;
+        }
+        .events-table th {
+            background: #1a2733;
+            padding: 10px 12px;
+            text-align: left;
+            color: #4fc3f7;
+            border-bottom: 2px solid #263238;
+        }
+        .events-table td {
+            padding: 8px 12px;
+            border-bottom: 1px solid #1e2d3a;
+        }
+        .events-table tr:hover { background: #1a2733; }
+        .event-type {
+            font-weight: 600;
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-size: 0.85em;
+        }
+        .event-type.AUTO_RESTART, .event-type.STALL_RESTART { background: #e65100; color: #ffe0b2; }
+        .event-type.STARTED, .event-type.CHECK_OK { background: #1b5e20; color: #a5d6a7; }
+        .event-type.STOPPED { background: #b71c1c; color: #ef9a9a; }
+        .event-type.ERROR { background: #880e4f; color: #f48fb1; }
+        .event-type.COMPLETED { background: #0d47a1; color: #90caf9; }
+        .refresh-note {
+            text-align: center;
+            color: #546e7a;
+            font-size: 0.8em;
+            margin-top: 20px;
+        }
+    </style>
+</head>
+<body>
+    <h1>OSCAR2 Dashboard</h1>
+    <p class="subtitle">Agent Teams Monitoring &amp; Recovery System</p>
+
+    <div class="grid">
+        {% for p in projects %}
+        <div class="card {{ p.status }}">
+            <div class="card-header">
+                <span class="card-title">{{ p.name }}</span>
+                <span class="status-badge {{ p.status }}">{{ p.status }}</span>
+            </div>
+            <div class="card-info">
+                ID: <span>{{ p.id }}</span><br>
+                PID: <span>{{ p.pid or '—' }}</span><br>
+                Last Check: <span>{{ p.last_check or '—' }}</span><br>
+                Restarts: <span>{{ p.restart_count }}</span><br>
+                Auto-Restart: <span>{{ '有効' if p.auto_restart else '無効' }}</span>
+            </div>
+            <div class="card-actions">
+                <button class="btn btn-start" onclick="apiAction('{{ p.id }}', 'start')">Start</button>
+                <button class="btn btn-stop" onclick="apiAction('{{ p.id }}', 'stop')">Stop</button>
+                <button class="btn btn-restart" onclick="apiAction('{{ p.id }}', 'restart')">Restart</button>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+
+    <h2>Recent Events</h2>
+    <table class="events-table">
+        <thead>
+            <tr>
+                <th>Time</th>
+                <th>Project</th>
+                <th>Event</th>
+                <th>Message</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for e in events %}
+            <tr>
+                <td>{{ e.created_at }}</td>
+                <td>{{ e.project_id }}</td>
+                <td><span class="event-type {{ e.event_type }}">{{ e.event_type }}</span></td>
+                <td>{{ e.message }}</td>
+            </tr>
+            {% endfor %}
+            {% if not events %}
+            <tr><td colspan="4" style="text-align:center; color:#546e7a;">No events yet</td></tr>
+            {% endif %}
+        </tbody>
+    </table>
+
+    <p class="refresh-note">Auto-refresh: 30 seconds</p>
+
+    <script>
+        async function apiAction(projectId, action) {
+            try {
+                const res = await fetch(`/api/project/${projectId}/${action}`, { method: 'POST' });
+                const data = await res.json();
+                alert(`${action}: ${JSON.stringify(data)}`);
+                location.reload();
+            } catch (e) {
+                alert('Error: ' + e.message);
+            }
+        }
+        setTimeout(() => location.reload(), 30000);
+    </script>
+</body>
+</html>

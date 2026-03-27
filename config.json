@@ -1,0 +1,17 @@
+{
+  "projects": [
+    {
+      "id": "blog_automation",
+      "name": "ブログ記事自動生成",
+      "path": "blog_automation",
+      "auto_restart": true,
+      "stall_timeout_minutes": 30,
+      "max_cost_per_day_usd": 10
+    }
+  ],
+  "oscar": {
+    "dashboard_port": 5001,
+    "check_interval_seconds": 60,
+    "base_path": "C:\\Users\\koji3\\OneDrive\\デスクトップ"
+  }
+}
