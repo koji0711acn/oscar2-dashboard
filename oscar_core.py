@@ -12,6 +12,7 @@ import cli_controller
 import models
 import notifier
 import recovery_orchestrator
+import task_backlog
 
 logging.basicConfig(
     level=logging.INFO,
@@ -30,6 +31,59 @@ def load_config():
         return json.load(f)
 
 
+def _handle_completed_batch(project_id):
+    """When a project completes, mark current running batch as completed."""
+    running = task_backlog.get_running_batch(project_id)
+    if running:
+        task_backlog.mark_completed(running["id"])
+        logger.info(f"[{project_id}] Batch '{running['batch_name']}' completed")
+        models.log_event(project_id, "BATCH_COMPLETED", f"Batch: {running['batch_name']}")
+
+
+def _inject_next_batch(project_config, oscar_config):
+    """Try to start the next pending batch for a project.
+
+    Returns True if a batch was started, False if no pending batches remain.
+    """
+    project_id = project_config["id"]
+    next_batch = task_backlog.get_next_pending(project_id)
+
+    if not next_batch:
+        # No more batches — project is idle
+        logger.info(f"[{project_id}] No pending batches, entering IDLE state")
+        models.update_project_state(project_id, "IDLE", None)
+        models.log_event(project_id, "IDLE", "All batches completed, no pending tasks")
+        notifier.notify(
+            "OSCAR2",
+            f"{project_config['name']}: All batches completed",
+            event_type="COMPLETED",
+            project_id=project_id,
+        )
+        return False
+
+    # Mark batch as running and start the process with the task text
+    task_backlog.mark_running(next_batch["id"])
+    logger.info(f"[{project_id}] Starting batch '{next_batch['batch_name']}' (id={next_batch['id']})")
+    models.log_event(
+        project_id, "BATCH_STARTED",
+        f"Batch: {next_batch['batch_name']} (priority={next_batch['priority']})",
+    )
+
+    new_pid = cli_controller.start(project_config, oscar_config, prompt_text=next_batch["tasks_text"])
+    if new_pid:
+        logger.info(f"[{project_id}] Batch '{next_batch['batch_name']}' started, PID={new_pid}")
+    else:
+        logger.error(f"[{project_id}] Failed to start batch '{next_batch['batch_name']}'")
+        task_backlog.mark_failed(next_batch["id"])
+        notifier.notify(
+            "OSCAR2 Error",
+            f"{project_config['name']}: Failed to start batch {next_batch['batch_name']}",
+            event_type="ERROR",
+            project_id=project_id,
+        )
+    return True
+
+
 def monitor_project(project_config, oscar_config):
     """Check one project via Recovery Orchestrator and take action."""
     project_id = project_config["id"]
@@ -46,7 +100,27 @@ def monitor_project(project_config, oscar_config):
 
     logger.info(f"[{project_id}] decision={action}: {detail}")
 
-    # Execute the decision
+    # Handle COMPLETED: mark current batch done, inject next batch
+    if action == "COMPLETED":
+        _handle_completed_batch(project_id)
+        _inject_next_batch(project_config, oscar_config)
+        return
+
+    # For DEAD with no running process but pending batches, try auto-inject
+    if status == "DEAD":
+        running_batch = task_backlog.get_running_batch(project_id)
+        if running_batch:
+            # Running batch but process is dead — mark batch as failed and try restart
+            task_backlog.mark_failed(running_batch["id"])
+            models.log_event(project_id, "BATCH_FAILED", f"Batch: {running_batch['batch_name']}")
+
+        # Check if there are pending batches to start
+        next_pending = task_backlog.get_next_pending(project_id)
+        if next_pending and project_config.get("auto_restart", False):
+            _inject_next_batch(project_config, oscar_config)
+            return
+
+    # Execute the recovery decision for non-queue scenarios
     recovery_orchestrator.execute(decision, project_config, oscar_config)
 
     # Reset retries on successful running

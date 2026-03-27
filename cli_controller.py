@@ -47,8 +47,15 @@ def _find_claude_cmd():
     return None
 
 
-def start(project_config, oscar_config):
-    """Start claude CLI for a project. Returns PID or None."""
+def start(project_config, oscar_config, prompt_text=None):
+    """Start claude CLI for a project. Returns PID or None.
+
+    Args:
+        project_config: Project configuration dict
+        oscar_config: OSCAR global configuration dict
+        prompt_text: Optional task text to pass via --print / -p flag.
+                     If provided, this is sent as the initial prompt instead of --resume.
+    """
     project_id = project_config["id"]
     project_path = os.path.join(
         oscar_config["base_path"], project_config["path"]
@@ -58,10 +65,6 @@ def start(project_config, oscar_config):
         log_event(project_id, "ERROR", f"Project path does not exist: {project_path}")
         return None
 
-    # Check for CLAUDE.md to use as prompt source
-    claude_md = os.path.join(project_path, "CLAUDE.md")
-    resume_flag = os.path.exists(claude_md)
-
     try:
         claude_bin = _find_claude_cmd()
         if not claude_bin:
@@ -69,8 +72,15 @@ def start(project_config, oscar_config):
             return None
 
         cmd = [claude_bin, "--dangerously-skip-permissions"]
-        if resume_flag:
-            cmd.extend(["--resume"])
+
+        if prompt_text:
+            # Use -p to pass the task text as initial prompt
+            cmd.extend(["-p", prompt_text])
+        else:
+            # Check for CLAUDE.md to use --resume
+            claude_md = os.path.join(project_path, "CLAUDE.md")
+            if os.path.exists(claude_md):
+                cmd.extend(["--resume"])
 
         # On Windows, .cmd files need shell=True
         use_shell = sys.platform == "win32" and claude_bin.endswith(".cmd")

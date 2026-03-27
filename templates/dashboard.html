@@ -72,6 +72,7 @@
         .card.DEAD     { border-left-color: #f44336; }
         .card.COMPLETED { border-left-color: #2196f3; }
         .card.UNKNOWN  { border-left-color: #78909c; }
+        .card.IDLE     { border-left-color: #607d8b; }
         .card-header {
             display: flex;
             justify-content: space-between;
@@ -91,6 +92,7 @@
         .status-badge.DEAD     { background: #b71c1c; color: #ef9a9a; }
         .status-badge.COMPLETED { background: #0d47a1; color: #90caf9; }
         .status-badge.UNKNOWN  { background: #37474f; color: #b0bec5; }
+        .status-badge.IDLE     { background: #455a64; color: #b0bec5; }
         .card-info {
             font-size: 0.8em;
             color: #90a4ae;
@@ -284,6 +286,73 @@
             font-size: 0.82em;
         }
 
+        /* Queue-specific styles */
+        .queue-badge {
+            display: inline-block;
+            padding: 1px 7px;
+            border-radius: 8px;
+            font-size: 0.72em;
+            font-weight: 700;
+            text-transform: uppercase;
+        }
+        .queue-badge.pending  { background: #37474f; color: #b0bec5; }
+        .queue-badge.running  { background: #1b5e20; color: #a5d6a7; }
+        .queue-badge.completed { background: #0d47a1; color: #90caf9; }
+        .queue-badge.failed   { background: #b71c1c; color: #ef9a9a; }
+        .queue-item {
+            background: #0f1923;
+            border: 1px solid #263238;
+            border-radius: 8px;
+            padding: 12px;
+            margin-bottom: 8px;
+        }
+        .queue-item-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 6px;
+        }
+        .queue-item-title { font-weight: 600; font-size: 0.9em; }
+        .queue-item-meta { font-size: 0.78em; color: #78909c; line-height: 1.6; }
+        .queue-item-actions { display: flex; gap: 4px; margin-top: 6px; }
+        .queue-item-text {
+            font-size: 0.78em;
+            color: #90a4ae;
+            background: #1a2733;
+            padding: 6px 8px;
+            border-radius: 4px;
+            max-height: 80px;
+            overflow-y: auto;
+            white-space: pre-wrap;
+            margin-top: 4px;
+        }
+        .priority-select {
+            background: #1a2733;
+            border: 1px solid #263238;
+            color: #e0e0e0;
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-size: 0.78em;
+        }
+        .form-row textarea {
+            flex: 1;
+            min-width: 150px;
+            min-height: 100px;
+            background: #0f1923;
+            border: 1px solid #263238;
+            color: #e0e0e0;
+            padding: 6px 10px;
+            border-radius: 6px;
+            font-size: 0.82em;
+            font-family: 'Consolas', monospace;
+            resize: vertical;
+        }
+        .btn-sm {
+            padding: 3px 10px;
+            font-size: 0.72em;
+        }
+        .btn-warn { background: #f57f17; color: white; }
+
         .refresh-note {
             text-align: center;
             color: #546e7a;
@@ -320,6 +389,7 @@
 
     <div class="tabs">
         <button class="tab-btn active" onclick="switchTab('projects')">Projects</button>
+        <button class="tab-btn" onclick="switchTab('queue')">Task Queue</button>
         <button class="tab-btn" onclick="switchTab('events')">Events</button>
         <button class="tab-btn" onclick="switchTab('notifications')">Notifications</button>
         <button class="tab-btn" onclick="switchTab('charts')">Charts</button>
@@ -368,6 +438,17 @@
                 </div>
                 {% endif %}
 
+                <div class="card-section">
+                    <div class="card-section-title">Task Queue</div>
+                    <div class="card-info" style="margin:0">
+                        {% if p.running_batch %}
+                        <span class="label">Running:</span> <span style="color:#a5d6a7">{{ p.running_batch }}</span><br>
+                        {% endif %}
+                        <span class="label">Pending:</span> <span>{{ p.pending_batches }}</span>
+                        <span class="label" style="margin-left:8px">Completed:</span> <span>{{ p.completed_batches }}</span>
+                    </div>
+                </div>
+
                 <div class="card-actions">
                     <button class="btn btn-start" onclick="apiAction('{{ p.id }}', 'start')">Start</button>
                     <button class="btn btn-stop" onclick="apiAction('{{ p.id }}', 'stop')">Stop</button>
@@ -381,6 +462,60 @@
             </div>
             {% endif %}
         </div>
+    </div>
+
+    <!-- Task Queue Tab -->
+    <div id="tab-queue" class="tab-content">
+        <h2>Task Queue</h2>
+
+        <div class="add-form" style="max-width:700px">
+            <h3>Add New Batch</h3>
+            <div class="form-row">
+                <label>Project:</label>
+                <select id="q-project">
+                    {% for p in projects %}
+                    <option value="{{ p.id }}">{{ p.name }} ({{ p.id }})</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="form-row">
+                <label>Batch Name:</label>
+                <input type="text" id="q-batch-name" placeholder="e.g. Feature X implementation">
+            </div>
+            <div class="form-row">
+                <label>Description:</label>
+                <input type="text" id="q-description" placeholder="Brief description">
+            </div>
+            <div class="form-row">
+                <label>Priority:</label>
+                <select id="q-priority">
+                    <option value="1">1 (Highest)</option>
+                    <option value="2">2</option>
+                    <option value="3" selected>3 (Normal)</option>
+                    <option value="4">4</option>
+                    <option value="5">5 (Lowest)</option>
+                </select>
+            </div>
+            <div class="form-row">
+                <label>Task Text:</label>
+                <textarea id="q-tasks-text" placeholder="Full instructions to pass to Agent Teams..."></textarea>
+            </div>
+            <div class="form-row">
+                <button class="btn btn-primary" onclick="addBatch()">Add to Queue</button>
+            </div>
+        </div>
+
+        <div class="filters">
+            <label>Filter by Project:</label>
+            <select id="q-filter-project" onchange="loadQueue()">
+                <option value="">All Projects</option>
+                {% for p in projects %}
+                <option value="{{ p.id }}">{{ p.name }}</option>
+                {% endfor %}
+            </select>
+        </div>
+
+        <div id="queue-list"></div>
     </div>
 
     <!-- Events Tab -->
@@ -554,6 +689,7 @@
             document.getElementById('tab-' + name).classList.add('active');
             event.target.classList.add('active');
             if (name === 'charts') loadCharts();
+            if (name === 'queue') loadQueue();
         }
 
         // API actions
@@ -717,6 +853,123 @@
                 });
             } catch (e) {
                 console.error('Chart load error:', e);
+            }
+        }
+
+        // --- Task Queue functions ---
+        async function loadQueue() {
+            const projectFilter = document.getElementById('q-filter-project').value;
+            let url = '/api/queue';
+            if (projectFilter) url += '/' + encodeURIComponent(projectFilter);
+            try {
+                const res = await fetch(url);
+                const items = await res.json();
+                const container = document.getElementById('queue-list');
+                if (items.length === 0) {
+                    container.innerHTML = '<div style="text-align:center;color:#546e7a;padding:20px;">No batches in queue</div>';
+                    return;
+                }
+                container.innerHTML = items.map(item => `
+                    <div class="queue-item">
+                        <div class="queue-item-header">
+                            <span class="queue-item-title">${escHtml(item.batch_name)}</span>
+                            <span class="queue-badge ${item.status}">${item.status}</span>
+                        </div>
+                        <div class="queue-item-meta">
+                            Project: <strong>${escHtml(item.project_id)}</strong> |
+                            Priority: <select class="priority-select" onchange="changePriority(${item.id}, this.value)" ${item.status !== 'pending' ? 'disabled' : ''}>
+                                ${[1,2,3,4,5].map(v => `<option value="${v}" ${v === item.priority ? 'selected' : ''}>${v}</option>`).join('')}
+                            </select> |
+                            Created: ${item.created_at || '---'}
+                            ${item.started_at ? ' | Started: ' + item.started_at : ''}
+                            ${item.completed_at ? ' | Ended: ' + item.completed_at : ''}
+                            ${item.description ? '<br>Description: ' + escHtml(item.description) : ''}
+                        </div>
+                        <div class="queue-item-text">${escHtml(item.tasks_text)}</div>
+                        <div class="queue-item-actions">
+                            ${item.status === 'pending' || item.status === 'running' ?
+                                `<button class="btn btn-warn btn-sm" onclick="cancelBatch(${item.id})">Cancel</button>` : ''}
+                            ${item.status === 'pending' ?
+                                `<button class="btn btn-danger btn-sm" onclick="deleteBatch(${item.id})">Delete</button>` : ''}
+                        </div>
+                    </div>
+                `).join('');
+            } catch (e) {
+                console.error('Queue load error:', e);
+            }
+        }
+
+        function escHtml(s) {
+            if (!s) return '';
+            const d = document.createElement('div');
+            d.textContent = s;
+            return d.innerHTML;
+        }
+
+        async function addBatch() {
+            const data = {
+                project_id: document.getElementById('q-project').value,
+                batch_name: document.getElementById('q-batch-name').value.trim(),
+                description: document.getElementById('q-description').value.trim(),
+                tasks_text: document.getElementById('q-tasks-text').value.trim(),
+                priority: parseInt(document.getElementById('q-priority').value) || 3,
+            };
+            if (!data.batch_name || !data.tasks_text) {
+                alert('Batch Name and Task Text are required');
+                return;
+            }
+            try {
+                const res = await fetch('/api/queue', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(data),
+                });
+                const result = await res.json();
+                if (res.ok) {
+                    document.getElementById('q-batch-name').value = '';
+                    document.getElementById('q-description').value = '';
+                    document.getElementById('q-tasks-text').value = '';
+                    loadQueue();
+                } else {
+                    alert('Error: ' + (result.error || 'Unknown'));
+                }
+            } catch (e) {
+                alert('Error: ' + e.message);
+            }
+        }
+
+        async function changePriority(batchId, newPriority) {
+            try {
+                await fetch(`/api/queue/${batchId}/priority`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ priority: parseInt(newPriority) }),
+                });
+                loadQueue();
+            } catch (e) {
+                alert('Error: ' + e.message);
+            }
+        }
+
+        async function cancelBatch(batchId) {
+            if (!confirm('Cancel this batch?')) return;
+            try {
+                const res = await fetch(`/api/queue/${batchId}/cancel`, { method: 'POST' });
+                if (res.ok) loadQueue();
+                else { const d = await res.json(); alert('Error: ' + d.error); }
+            } catch (e) {
+                alert('Error: ' + e.message);
+            }
+        }
+
+        async function deleteBatch(batchId) {
+            if (!confirm('Delete this batch permanently?')) return;
+            try {
+                const res = await fetch(`/api/queue/${batchId}`, { method: 'DELETE' });
+                if (res.ok) loadQueue();
+                else alert('Error deleting batch');
+            } catch (e) {
+                alert('Error: ' + e.message);
             }
         }
 

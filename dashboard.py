@@ -8,6 +8,7 @@ from flask import Flask, render_template, jsonify, request
 
 import models
 import cli_controller
+import task_backlog
 
 app = Flask(__name__)
 
@@ -101,7 +102,7 @@ def _get_project_extra_info(project_config, oscar_config):
 
 
 def _build_project_list():
-    """Build full project list with state and extra info."""
+    """Build full project list with state, extra info, and queue info."""
     config = load_config()
     states = models.get_all_project_states()
     state_map = {s["project_id"]: s for s in states}
@@ -111,13 +112,28 @@ def _build_project_list():
     for p in config["projects"]:
         state = state_map.get(p["id"], {})
         extra = _get_project_extra_info(p, oscar_config)
+
+        # Queue info
+        running_batch = task_backlog.get_running_batch(p["id"])
+        counts = task_backlog.count_by_status(p["id"])
+
+        raw_status = state.get("status", "UNKNOWN")
+        # Derive IDLE: process dead/unknown + no running batch + no pending batches
+        if raw_status in ("DEAD", "UNKNOWN") and not running_batch and counts.get("pending", 0) == 0:
+            display_status = "IDLE"
+        else:
+            display_status = raw_status
+
         projects.append({
             **p,
-            "status": state.get("status", "UNKNOWN"),
+            "status": display_status,
             "pid": state.get("pid"),
             "last_check": state.get("last_check"),
             "last_restart": state.get("last_restart"),
             "restart_count": state.get("restart_count", 0),
+            "running_batch": running_batch["batch_name"] if running_batch else None,
+            "pending_batches": counts.get("pending", 0),
+            "completed_batches": counts.get("completed", 0),
             **extra,
         })
     return projects, config
@@ -242,6 +258,87 @@ def api_event_breakdown():
     """Event type breakdown for chart."""
     data = models.get_event_type_breakdown()
     return jsonify(data)
+
+
+# --- Task Queue API ---
+
+@app.route("/api/queue")
+def api_queue_all():
+    """Get all queue items, optionally filtered by project_id."""
+    project_id = request.args.get("project_id")
+    items = task_backlog.list_all(project_id=project_id)
+    return jsonify(items)
+
+
+@app.route("/api/queue/<project_id>")
+def api_queue_project(project_id):
+    """Get queue items for a specific project."""
+    items = task_backlog.list_all(project_id=project_id)
+    return jsonify(items)
+
+
+@app.route("/api/queue", methods=["POST"])
+def api_queue_add():
+    """Add a new batch to the queue."""
+    data = request.get_json()
+    if not data:
+        return jsonify({"error": "JSON body required"}), 400
+    project_id = data.get("project_id")
+    batch_name = data.get("batch_name")
+    tasks_text = data.get("tasks_text")
+    if not project_id or not batch_name or not tasks_text:
+        return jsonify({"error": "project_id, batch_name, and tasks_text are required"}), 400
+
+    description = data.get("description", "")
+    priority = data.get("priority", 3)
+    try:
+        priority = int(priority)
+        priority = max(1, min(5, priority))
+    except (ValueError, TypeError):
+        priority = 3
+
+    row_id = task_backlog.add_batch(project_id, batch_name, tasks_text, description, priority)
+    models.log_event(project_id, "BATCH_QUEUED", f"Batch: {batch_name} (priority={priority})")
+    batch = task_backlog.get_batch(row_id)
+    return jsonify({"status": "added", "batch": batch}), 201
+
+
+@app.route("/api/queue/<int:batch_id>/priority", methods=["PUT"])
+def api_queue_priority(batch_id):
+    """Update the priority of a batch."""
+    data = request.get_json()
+    if not data or "priority" not in data:
+        return jsonify({"error": "priority is required"}), 400
+    try:
+        new_priority = int(data["priority"])
+        new_priority = max(1, min(5, new_priority))
+    except (ValueError, TypeError):
+        return jsonify({"error": "priority must be an integer 1-5"}), 400
+
+    if task_backlog.update_priority(batch_id, new_priority):
+        return jsonify({"status": "updated", "priority": new_priority})
+    return jsonify({"error": "Batch not found"}), 404
+
+
+@app.route("/api/queue/<int:batch_id>", methods=["DELETE"])
+def api_queue_delete(batch_id):
+    """Delete a batch from the queue."""
+    if task_backlog.delete_batch(batch_id):
+        return jsonify({"status": "deleted"})
+    return jsonify({"error": "Batch not found"}), 404
+
+
+@app.route("/api/queue/<int:batch_id>/cancel", methods=["POST"])
+def api_queue_cancel(batch_id):
+    """Cancel a running or pending batch."""
+    batch = task_backlog.get_batch(batch_id)
+    if not batch:
+        return jsonify({"error": "Batch not found"}), 404
+
+    if task_backlog.cancel_batch(batch_id):
+        models.log_event(batch["project_id"], "BATCH_CANCELLED", f"Batch: {batch['batch_name']}")
+        return jsonify({"status": "cancelled"})
+    return jsonify({"error": "Batch cannot be cancelled (already completed/failed)"}), 409
 
 
 if __name__ == "__main__":
