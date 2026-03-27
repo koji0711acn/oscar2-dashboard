@@ -1,9 +1,19 @@
-"""Mechanical Judge: validates project health via process survival and file checks."""
+"""Quality Gate: Mechanical Judge + Strategic Judge for project health assessment."""
 
 import os
+import json
+import glob
+import logging
 from datetime import datetime, timedelta
 from process_monitor import find_claude_process
+import models
 
+logger = logging.getLogger("oscar2.quality_gate")
+
+
+# ============================================================
+# Mechanical Judge: process survival and file checks
+# ============================================================
 
 def check_project_health(project_config, oscar_config):
     """Run all quality checks on a project. Returns dict of check results."""
@@ -65,3 +75,125 @@ def check_project_health(project_config, oscar_config):
         }
 
     return results
+
+
+# ============================================================
+# Strategic Judge: debug packet analysis and quality assessment
+# ============================================================
+
+def strategic_judge(project_config, oscar_config):
+    """Analyze project output quality via debug packets in output/ directory.
+
+    Returns dict with:
+        verdict: 'publishable' | 'needs_revision' | 'no_data'
+        action: 'CONTINUE' | 'ESCALATE_TO_HUMAN' | 'PAUSE' | None
+        detail: str
+    """
+    project_id = project_config["id"]
+    project_path = os.path.join(
+        oscar_config["base_path"], project_config["path"]
+    )
+
+    result = {
+        "project_id": project_id,
+        "verdict": "no_data",
+        "action": None,
+        "detail": "",
+        "timestamp": datetime.now().isoformat(),
+    }
+
+    # --- Check 1: Cost limit ---
+    today = datetime.now().strftime("%Y-%m-%d")
+    daily_cost = models.get_daily_cost(project_id, today)
+    max_cost = project_config.get("max_cost_per_day_usd", 10)
+
+    if daily_cost >= max_cost:
+        result["verdict"] = "cost_exceeded"
+        result["action"] = "PAUSE"
+        result["detail"] = f"Daily cost ${daily_cost:.2f} >= limit ${max_cost:.2f}"
+        models.record_quality(project_id, "cost_exceeded", result["detail"])
+        logger.warning(f"[{project_id}] Cost limit exceeded: {result['detail']}")
+        return result
+
+    # --- Check 2: Analyze debug packets in output/ ---
+    output_dir = os.path.join(project_path, "output")
+    if os.path.isdir(output_dir):
+        verdict = _analyze_debug_packets(output_dir)
+        result["verdict"] = verdict
+        result["detail"] = f"Debug packet analysis: {verdict}"
+    else:
+        result["verdict"] = "no_data"
+        result["detail"] = "No output/ directory found"
+
+    # Record quality verdict
+    if result["verdict"] in ("publishable", "needs_revision"):
+        models.record_quality(project_id, result["verdict"], result["detail"])
+
+    # --- Check 3: Consecutive needs_revision → ESCALATE ---
+    consecutive = models.get_consecutive_needs_revision(project_id)
+    if consecutive >= 3:
+        result["action"] = "ESCALATE_TO_HUMAN"
+        result["detail"] += f" | {consecutive} consecutive needs_revision"
+        logger.warning(f"[{project_id}] Escalating: {consecutive} consecutive needs_revision")
+
+    return result
+
+
+def _analyze_debug_packets(output_dir):
+    """Analyze the most recent debug packet files in output/ directory.
+
+    Looks for JSON files with quality/verdict fields, or text files with
+    PASS/FAIL indicators.
+
+    Returns: 'publishable' | 'needs_revision' | 'no_data'
+    """
+    # Find most recent files
+    patterns = [
+        os.path.join(output_dir, "*.json"),
+        os.path.join(output_dir, "**", "*.json"),
+        os.path.join(output_dir, "*.txt"),
+    ]
+
+    files = []
+    for pattern in patterns:
+        files.extend(glob.glob(pattern, recursive=True))
+
+    if not files:
+        return "no_data"
+
+    # Sort by modification time, most recent first
+    files.sort(key=lambda f: os.path.getmtime(f), reverse=True)
+
+    # Analyze the most recent file
+    latest = files[0]
+    try:
+        with open(latest, "r", encoding="utf-8") as f:
+            content = f.read()
+
+        # Try JSON with verdict/quality fields
+        if latest.endswith(".json"):
+            try:
+                data = json.loads(content)
+                # Check common verdict field names
+                for key in ("verdict", "quality", "status", "result"):
+                    val = data.get(key, "")
+                    if isinstance(val, str):
+                        val_lower = val.lower()
+                        if "publish" in val_lower or "pass" in val_lower or "good" in val_lower:
+                            return "publishable"
+                        if "revision" in val_lower or "fail" in val_lower or "bad" in val_lower:
+                            return "needs_revision"
+            except json.JSONDecodeError:
+                pass
+
+        # Fallback: text content analysis
+        upper = content.upper()
+        if "PUBLISHABLE" in upper or "PASS" in upper or "SUCCESS" in upper:
+            return "publishable"
+        if "NEEDS_REVISION" in upper or "FAIL" in upper or "ERROR" in upper:
+            return "needs_revision"
+
+    except OSError:
+        pass
+
+    return "no_data"

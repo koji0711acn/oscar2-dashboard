@@ -7,6 +7,14 @@
       "auto_restart": true,
       "stall_timeout_minutes": 30,
       "max_cost_per_day_usd": 10
+    },
+    {
+      "id": "oscar2",
+      "name": "OSCAR2 自己監視",
+      "path": "oscar2",
+      "auto_restart": false,
+      "stall_timeout_minutes": 60,
+      "max_cost_per_day_usd": 5
     }
   ],
   "oscar": {

@@ -3,7 +3,9 @@
 import subprocess
 import os
 import signal
+import sys
 import time
+import shutil
 
 try:
     import psutil
@@ -14,6 +16,35 @@ from models import update_project_state, record_restart, log_event
 
 # Track child processes by project_id
 _processes = {}
+
+
+def _find_claude_cmd():
+    """Find the claude CLI executable, searching common Windows paths."""
+    # Try direct lookup first
+    found = shutil.which("claude")
+    if found:
+        return found
+
+    # Windows: search npm global install directories
+    if sys.platform == "win32":
+        candidates = []
+        appdata = os.environ.get("APPDATA", "")
+        if appdata:
+            candidates.append(os.path.join(appdata, "npm", "claude.cmd"))
+            candidates.append(os.path.join(appdata, "npm", "claude"))
+        localappdata = os.environ.get("LOCALAPPDATA", "")
+        if localappdata:
+            candidates.append(os.path.join(localappdata, "npm", "claude.cmd"))
+        # nvm / fnm / volta paths
+        userprofile = os.environ.get("USERPROFILE", "")
+        if userprofile:
+            candidates.append(os.path.join(userprofile, ".npm-global", "claude.cmd"))
+            candidates.append(os.path.join(userprofile, "AppData", "Local", "fnm_multishells", "claude.cmd"))
+        for c in candidates:
+            if os.path.isfile(c):
+                return c
+
+    return None
 
 
 def start(project_config, oscar_config):
@@ -32,9 +63,20 @@ def start(project_config, oscar_config):
     resume_flag = os.path.exists(claude_md)
 
     try:
-        cmd = ["claude", "--dangerously-skip-permissions"]
+        claude_bin = _find_claude_cmd()
+        if not claude_bin:
+            log_event(project_id, "ERROR", "claude CLI not found in PATH or npm global dirs")
+            return None
+
+        cmd = [claude_bin, "--dangerously-skip-permissions"]
         if resume_flag:
             cmd.extend(["--resume"])
+
+        # On Windows, .cmd files need shell=True
+        use_shell = sys.platform == "win32" and claude_bin.endswith(".cmd")
+        creation_flags = 0
+        if sys.platform == "win32":
+            creation_flags = subprocess.CREATE_NEW_PROCESS_GROUP
 
         proc = subprocess.Popen(
             cmd,
@@ -42,14 +84,15 @@ def start(project_config, oscar_config):
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
             stdin=subprocess.DEVNULL,
-            creationflags=subprocess.CREATE_NEW_PROCESS_GROUP,
+            shell=use_shell,
+            creationflags=creation_flags,
         )
         _processes[project_id] = proc
         update_project_state(project_id, "RUNNING", proc.pid)
-        log_event(project_id, "STARTED", f"PID={proc.pid}")
+        log_event(project_id, "STARTED", f"PID={proc.pid}, cmd={claude_bin}")
         return proc.pid
     except FileNotFoundError:
-        log_event(project_id, "ERROR", "claude CLI not found in PATH")
+        log_event(project_id, "ERROR", f"claude CLI not found: {claude_bin}")
         return None
     except Exception as e:
         log_event(project_id, "ERROR", f"Failed to start: {e}")

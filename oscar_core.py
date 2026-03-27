@@ -11,6 +11,7 @@ import process_monitor
 import cli_controller
 import models
 import notifier
+import recovery_orchestrator
 
 logging.basicConfig(
     level=logging.INFO,
@@ -30,36 +31,27 @@ def load_config():
 
 
 def monitor_project(project_config, oscar_config):
-    """Check one project and take action if needed."""
+    """Check one project via Recovery Orchestrator and take action."""
     project_id = project_config["id"]
-    status, pid = process_monitor.check(project_config, oscar_config)
 
+    # Update process state in DB
+    status, pid = process_monitor.check(project_config, oscar_config)
     models.update_project_state(project_id, status, pid)
     logger.info(f"[{project_id}] status={status} pid={pid}")
 
-    if status == "DEAD" and project_config.get("auto_restart", False):
-        logger.warning(f"[{project_id}] DEAD — attempting auto-restart")
-        models.log_event(project_id, "AUTO_RESTART", "Process was dead, restarting")
-        notifier.notify("OSCAR2", f"{project_config['name']} が停止 — 自動再起動中")
-        new_pid = cli_controller.restart(project_config, oscar_config)
-        if new_pid:
-            logger.info(f"[{project_id}] Restarted with PID={new_pid}")
-        else:
-            logger.error(f"[{project_id}] Restart failed")
-            notifier.notify("OSCAR2 エラー", f"{project_config['name']} の再起動に失敗")
+    # Use Recovery Orchestrator for decision
+    decision = recovery_orchestrator.evaluate(project_config, oscar_config)
+    action = decision["action"]
+    detail = decision["detail"]
 
-    elif status == "STALLED":
-        logger.warning(f"[{project_id}] STALLED — restarting")
-        models.log_event(project_id, "STALL_RESTART", "Process stalled, restarting")
-        notifier.notify("OSCAR2", f"{project_config['name']} が停滞 — 再起動中")
-        cli_controller.restart(project_config, oscar_config)
+    logger.info(f"[{project_id}] decision={action}: {detail}")
 
-    elif status == "COMPLETED":
-        models.log_event(project_id, "COMPLETED", "Project marked as completed")
-        logger.info(f"[{project_id}] COMPLETED")
+    # Execute the decision
+    recovery_orchestrator.execute(decision, project_config, oscar_config)
 
-    elif status == "RUNNING":
-        models.log_event(project_id, "CHECK_OK", f"Running normally, PID={pid}")
+    # Reset retries on successful running
+    if status == "RUNNING" and action == "CONTINUE":
+        recovery_orchestrator.reset_retries(project_id)
 
 
 def run():

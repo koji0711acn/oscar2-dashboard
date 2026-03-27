@@ -1,13 +1,16 @@
 """Process monitor: detect Claude Code process status per project."""
 
 import os
-import time
+import logging
+import subprocess as _subprocess
 from datetime import datetime, timedelta
 
 try:
     import psutil
 except ImportError:
     psutil = None
+
+logger = logging.getLogger("oscar2.process_monitor")
 
 
 def check(project_config, oscar_config):
@@ -35,22 +38,57 @@ def check(project_config, oscar_config):
 
 
 def find_claude_process(project_path):
-    """Find a claude CLI process associated with the given project path."""
+    """Find a claude CLI process associated with the given project path.
+
+    Detects both direct 'claude' processes and node.js processes running
+    Claude Code (which is how npm-installed claude works on Windows).
+    """
     if psutil is None:
         return _find_claude_process_wmic(project_path)
 
     normalized = os.path.normpath(project_path).lower()
+
     for proc in psutil.process_iter(["pid", "name", "cmdline", "cwd"]):
         try:
             info = proc.info
             name = (info["name"] or "").lower()
-            if "claude" not in name:
-                continue
-            # Check if cwd matches or cmdline references the path
+            cmdline_parts = info.get("cmdline") or []
+            cmdline_str = " ".join(cmdline_parts).lower()
             cwd = (info.get("cwd") or "").lower()
-            cmdline = " ".join(info.get("cmdline") or []).lower()
-            if normalized in cwd or normalized in cmdline:
+
+            # Match 1: process name contains "claude"
+            is_claude = "claude" in name
+
+            # Match 2: node.js process running claude (npm global install)
+            if not is_claude and ("node" in name or "node.exe" in name):
+                is_claude = "claude" in cmdline_str
+
+            # Match 3: cmd.exe running claude.cmd
+            if not is_claude and ("cmd" in name):
+                is_claude = "claude" in cmdline_str
+
+            if not is_claude:
+                continue
+
+            # Check if cwd matches or cmdline references the project path
+            if normalized in cwd or normalized in cmdline_str:
+                logger.debug(f"Found claude process: PID={info['pid']}, name={name}, cwd={cwd}")
                 return info["pid"]
+
+            # Also check child processes' cwd
+            try:
+                parent = psutil.Process(info["pid"])
+                for child in parent.children(recursive=True):
+                    try:
+                        child_cwd = (child.cwd() or "").lower()
+                        if normalized in child_cwd:
+                            logger.debug(f"Found claude via child: PID={info['pid']}, child_cwd={child_cwd}")
+                            return info["pid"]
+                    except (psutil.NoSuchProcess, psutil.AccessDenied):
+                        continue
+            except (psutil.NoSuchProcess, psutil.AccessDenied):
+                pass
+
         except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
             continue
     return None
@@ -58,25 +96,24 @@ def find_claude_process(project_path):
 
 def _find_claude_process_wmic(project_path):
     """Fallback: use wmic to find claude processes on Windows."""
-    import subprocess
-
     try:
-        result = subprocess.run(
-            ["wmic", "process", "where", "name like '%claude%'", "get",
-             "processid,commandline", "/format:csv"],
-            capture_output=True, text=True, timeout=10
+        result = _subprocess.run(
+            ["wmic", "process", "get", "processid,commandline,executablepath",
+             "/format:csv"],
+            capture_output=True, text=True, timeout=15
         )
         normalized = os.path.normpath(project_path).lower()
         for line in result.stdout.strip().split("\n"):
-            if normalized in line.lower():
+            lower = line.lower()
+            if "claude" in lower and normalized in lower:
                 parts = line.strip().split(",")
                 if parts:
                     try:
                         return int(parts[-1])
                     except ValueError:
                         continue
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug(f"wmic fallback failed: {e}")
     return None
 
 
