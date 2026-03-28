@@ -197,3 +197,69 @@ def _analyze_debug_packets(output_dir):
         pass
 
     return "no_data"
+
+
+# ============================================================
+# QA Checker integration: auto-check HTML articles in output/
+# ============================================================
+
+def run_qa_check_on_latest(project_config, oscar_config):
+    """Run qa_checker on the most recent HTML file in project output/.
+
+    Returns dict with qa_result or None if no files found.
+    """
+    project_id = project_config["id"]
+    project_path = os.path.join(oscar_config["base_path"], project_config["path"])
+    output_dir = os.path.join(project_path, "output")
+
+    if not os.path.isdir(output_dir):
+        return None
+
+    # Find most recent HTML file
+    html_files = []
+    for fname in os.listdir(output_dir):
+        if fname.endswith('.html'):
+            fpath = os.path.join(output_dir, fname)
+            html_files.append((os.path.getmtime(fpath), fpath, fname))
+
+    if not html_files:
+        return None
+
+    html_files.sort(reverse=True)
+    latest_time, latest_path, latest_name = html_files[0]
+
+    # Extract keywords from filename
+    keywords = []
+    parts = latest_name.replace('.html', '').split('_')
+    for part in parts:
+        if part in ('NEW',) or part.isdigit():
+            continue
+        if len(part) >= 2:
+            keywords.append(part)
+
+    try:
+        import qa_checker
+        with open(latest_path, 'r', encoding='utf-8') as f:
+            html_content = f.read()
+
+        result = qa_checker.check_article(html_content, keywords)
+        result['filename'] = latest_name
+        result['filepath'] = latest_path
+        result['keywords'] = keywords
+
+        verdict = 'publishable' if result['passed'] else 'needs_revision'
+        detail = f"QA: {result['summary']['critical']} critical, {result['summary']['warning']} warning"
+        models.record_quality(project_id, verdict, f"{latest_name}: {detail}")
+        logger.info(f"[{project_id}] QA check on {latest_name}: {verdict} ({detail})")
+
+        report_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'qa_reports')
+        os.makedirs(report_dir, exist_ok=True)
+        report = qa_checker.generate_report_md(result, latest_path, keywords)
+        report_path = os.path.join(report_dir, f"{latest_name.replace('.html', '')}_qa_report.md")
+        with open(report_path, 'w', encoding='utf-8') as f:
+            f.write(report)
+
+        return result
+    except Exception as e:
+        logger.error(f"[{project_id}] QA check failed: {e}")
+        return None

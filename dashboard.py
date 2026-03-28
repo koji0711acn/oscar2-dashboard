@@ -480,6 +480,59 @@ def api_update_project_settings(project_id):
     return jsonify({"error": "Project not found"}), 404
 
 
+# --- QA Check API ---
+
+@app.route("/api/qa/check", methods=["POST"])
+@require_auth
+def api_qa_check():
+    """Run QA check on a specific HTML file or project's latest output."""
+    import quality_gate
+    data = request.get_json()
+    if not data or not data.get("project_id"):
+        return jsonify({"error": "project_id required"}), 400
+
+    project_config, oscar_config = get_project_config(data["project_id"])
+    if not project_config:
+        return jsonify({"error": "Project not found"}), 404
+
+    result = quality_gate.run_qa_check_on_latest(project_config, oscar_config)
+    if result is None:
+        return jsonify({"error": "No HTML files found in output/"}), 404
+    return jsonify(result)
+
+
+@app.route("/api/qa/reports")
+@require_auth
+def api_qa_reports():
+    """List available QA reports."""
+    report_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'qa_reports')
+    if not os.path.isdir(report_dir):
+        return jsonify([])
+    reports = []
+    for fname in sorted(os.listdir(report_dir), reverse=True):
+        if fname.endswith('_qa_report.md'):
+            fpath = os.path.join(report_dir, fname)
+            reports.append({
+                'filename': fname,
+                'size': os.path.getsize(fpath),
+                'modified': os.path.getmtime(fpath),
+            })
+    return jsonify(reports[:50])
+
+
+@app.route("/api/qa/report/<path:filename>")
+@require_auth
+def api_qa_report(filename):
+    """Get a specific QA report content."""
+    report_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'qa_reports')
+    fpath = os.path.join(report_dir, filename)
+    if not os.path.exists(fpath):
+        return jsonify({"error": "Report not found"}), 404
+    with open(fpath, 'r', encoding='utf-8') as f:
+        content = f.read()
+    return jsonify({"filename": filename, "content": content})
+
+
 # --- Recovery action API ---
 
 @app.route("/api/project/<project_id>/resume", methods=["POST"])

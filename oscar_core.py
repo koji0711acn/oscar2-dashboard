@@ -17,6 +17,7 @@ import models
 import notifier
 import recovery_orchestrator
 import task_backlog
+import quality_gate
 
 logging.basicConfig(
     level=logging.INFO,
@@ -130,6 +131,14 @@ def monitor_project(project_config, oscar_config):
     # Reset retries on successful running
     if status == "RUNNING" and action == "CONTINUE":
         recovery_orchestrator.reset_retries(project_id)
+
+    # Run QA check on latest output
+    try:
+        qa_result = quality_gate.run_qa_check_on_latest(project_config, oscar_config)
+        if qa_result and not qa_result['passed']:
+            logger.warning(f"[{project_id}] QA FAIL: {qa_result['summary']}")
+    except Exception as e:
+        logger.debug(f"[{project_id}] QA check skipped: {e}")
 
     # Send heartbeat to remote dashboard
     try:
