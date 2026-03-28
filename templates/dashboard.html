@@ -294,6 +294,12 @@
 <p class="refresh-note">Auto-refresh: <span class="cd" id="cd">10</span>s</p>
 
 <script>
+// === Auth token management ===
+function getToken(){return localStorage.getItem('oscar2_token')||''}
+function setToken(t){localStorage.setItem('oscar2_token',t)}
+function authHeaders(){const t=getToken();return t?{'Authorization':'Bearer '+t}:{}}
+function authUrl(u){const t=getToken();if(!t)return u;return u+(u.includes('?')?'&':'?')+'token='+encodeURIComponent(t)}
+
 // === Tab switching ===
 function switchTab(name,el){
     document.querySelectorAll('.tab-content').forEach(t=>t.classList.remove('active'));
@@ -307,20 +313,29 @@ function switchTab(name,el){
 
 // === Generic API helpers ===
 function esc(s){if(!s)return'';const d=document.createElement('div');d.textContent=s;return d.innerHTML}
-async function apiPost(url){try{await fetch(url,{method:'POST'});location.reload()}catch(e){alert('Error: '+e.message)}}
-async function apiJson(url,opts){const r=await fetch(url,opts);return r.json()}
+async function apiPost(url){try{const r=await fetch(url,{method:'POST',headers:authHeaders()});if(r.status===401){promptLogin();return}location.reload()}catch(e){alert('Error: '+e.message)}}
+async function apiJson(url,opts){
+    opts=opts||{};opts.headers={...(opts.headers||{}),...authHeaders()};
+    const r=await fetch(url,opts);
+    if(r.status===401){promptLogin();return{}}
+    return r.json();
+}
+function promptLogin(){
+    const t=prompt('Enter OSCAR2 dashboard token:');
+    if(t){setToken(t);location.reload()}
+}
 
 // === Project management ===
 async function addProject(){
     const d={id:document.getElementById('np-id').value.trim(),name:document.getElementById('np-name').value.trim(),path:document.getElementById('np-path').value.trim(),auto_restart:document.getElementById('np-ar').value==='true',max_cost_per_day_usd:parseFloat(document.getElementById('np-cost').value)||10};
     if(!d.id||!d.name||!d.path){alert('ID, Name, Path required');return}
-    const r=await fetch('/api/projects',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(d)});
+    const r=await fetch('/api/projects',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify(d)});
     if(r.ok)location.reload();else{const j=await r.json();alert(j.error||'Error')}
 }
-async function deleteProject(id){if(!confirm('Delete '+id+'?'))return;const r=await fetch('/api/projects/'+id,{method:'DELETE'});if(r.ok)location.reload()}
+async function deleteProject(id){if(!confirm('Delete '+id+'?'))return;const r=await fetch('/api/projects/'+id,{method:'DELETE',headers:authHeaders()});if(r.ok)location.reload()}
 async function updateSetting(id,key,val){
     const body={};body[key]=val;
-    await fetch('/api/projects/'+id+'/settings',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+    await fetch('/api/projects/'+id+'/settings',{method:'PUT',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify(body)});
 }
 
 // === Event filtering ===
@@ -346,13 +361,13 @@ async function loadQueue(){
 async function addBatch(){
     const d={project_id:document.getElementById('q-proj').value,batch_name:document.getElementById('q-name').value.trim(),description:document.getElementById('q-desc').value.trim(),tasks_text:document.getElementById('q-text').value.trim(),priority:parseInt(document.getElementById('q-pri').value)||3};
     if(!d.batch_name||!d.tasks_text){alert('Batch Name and Task Text required');return}
-    const r=await fetch('/api/queue',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(d)});
+    const r=await fetch('/api/queue',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify(d)});
     if(r.ok){document.getElementById('q-name').value='';document.getElementById('q-desc').value='';document.getElementById('q-text').value='';loadQueue()}
     else{const j=await r.json();alert(j.error||'Error')}
 }
-async function chgPri(id,v){await fetch(`/api/queue/${id}/priority`,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({priority:parseInt(v)})});loadQueue()}
-async function cancelQ(id){if(!confirm('Cancel?'))return;await fetch(`/api/queue/${id}/cancel`,{method:'POST'});loadQueue()}
-async function delQ(id){if(!confirm('Delete?'))return;await fetch(`/api/queue/${id}`,{method:'DELETE'});loadQueue()}
+async function chgPri(id,v){await fetch(`/api/queue/${id}/priority`,{method:'PUT',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({priority:parseInt(v)})});loadQueue()}
+async function cancelQ(id){if(!confirm('Cancel?'))return;await fetch(`/api/queue/${id}/cancel`,{method:'POST',headers:authHeaders()});loadQueue()}
+async function delQ(id){if(!confirm('Delete?'))return;await fetch(`/api/queue/${id}`,{method:'DELETE',headers:authHeaders()});loadQueue()}
 
 // === Task Decomposer ===
 let lastTasks=[];
@@ -364,7 +379,7 @@ async function decompose(){
     const ctx=document.getElementById('d-ctx').value.trim();
     out.innerHTML='<div class="chat-msg user">'+esc(req)+'</div><div style="color:#78909c;padding:8px">AI is analyzing...</div>';
     try{
-        const r=await fetch('/api/decompose',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({request_text:req,project_context:ctx})});
+        const r=await fetch('/api/decompose',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({request_text:req,project_context:ctx})});
         const d=await r.json();
         let html='<div class="chat-msg user">'+esc(req)+'</div>';
         if(d.success&&d.tasks.length){
@@ -384,7 +399,7 @@ async function decompose(){
 }
 async function enqueueDecomposed(){
     const proj=document.getElementById('d-proj').value;
-    const r=await fetch('/api/decompose/enqueue',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({project_id:proj,tasks:lastTasks,batch_name:'AI: '+lastTasks.map(t=>t.name).join(', ').substring(0,60)})});
+    const r=await fetch('/api/decompose/enqueue',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({project_id:proj,tasks:lastTasks,batch_name:'AI: '+lastTasks.map(t=>t.name).join(', ').substring(0,60)})});
     if(r.ok){alert('Added to queue!');switchTab('queue',document.querySelectorAll('.tab-btn')[1])}
     else{const d=await r.json();alert(d.error||'Error')}
 }
@@ -430,11 +445,11 @@ async function loadNotifications(){
 }
 async function testNotification(){
     // Trigger a test notification via adding and reading it
-    await fetch('/api/queue',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({project_id:'oscar2',batch_name:'__test_notif__',tasks_text:'test',priority:5})});
+    await fetch('/api/queue',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({project_id:'oscar2',batch_name:'__test_notif__',tasks_text:'test',priority:5})});
     // Cancel it immediately
     const items=await apiJson('/api/queue/oscar2');
     const t=items.find(i=>i.batch_name==='__test_notif__');
-    if(t)await fetch(`/api/queue/${t.id}`,{method:'DELETE'});
+    if(t)await fetch(`/api/queue/${t.id}`,{method:'DELETE',headers:authHeaders()});
     alert('Test notification logged. Check Notifications tab.');
     loadNotifications();
 }

@@ -3,8 +3,14 @@
 import json
 import os
 import subprocess
+import functools
 from datetime import datetime
 from flask import Flask, render_template, jsonify, request
+
+# Load .env from blog_automation (contains API keys)
+from dotenv import load_dotenv
+_env_path = os.path.join("C:\\Users\\koji3\\OneDrive\\デスクトップ\\blog_automation", ".env")
+load_dotenv(_env_path, override=False)  # no error if file missing
 
 import models
 import cli_controller
@@ -17,6 +23,53 @@ CONFIG_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "config.j
 
 # Track when monitoring started (for uptime calculation)
 _start_time = datetime.now()
+
+
+# --- Authentication middleware ---
+
+def _get_dashboard_token():
+    """Get dashboard token from env or config."""
+    token = os.environ.get("DASHBOARD_TOKEN")
+    if token:
+        return token
+    try:
+        config = load_config()
+        return config.get("oscar", {}).get("dashboard_token")
+    except Exception:
+        return None
+
+
+def _is_localhost():
+    """Check if request is from localhost."""
+    remote = request.remote_addr
+    return remote in ("127.0.0.1", "::1", "localhost")
+
+
+def require_auth(f):
+    """Decorator to require token authentication on API endpoints."""
+    @functools.wraps(f)
+    def decorated(*args, **kwargs):
+        token = _get_dashboard_token()
+        if not token:
+            return f(*args, **kwargs)  # No token configured = no auth required
+
+        # Check config for localhost bypass
+        try:
+            config = load_config()
+            if config.get("oscar", {}).get("localhost_no_auth", True) and _is_localhost():
+                return f(*args, **kwargs)
+        except Exception:
+            pass
+
+        # Check Authorization header or ?token= query param
+        auth_header = request.headers.get("Authorization", "")
+        query_token = request.args.get("token", "")
+
+        if auth_header == f"Bearer {token}" or query_token == token:
+            return f(*args, **kwargs)
+
+        return jsonify({"error": "Unauthorized"}), 401
+    return decorated
 
 
 def load_config():
@@ -150,12 +203,14 @@ def index():
 
 
 @app.route("/api/projects")
+@require_auth
 def api_projects():
     projects, _ = _build_project_list()
     return jsonify(projects)
 
 
 @app.route("/api/project/<project_id>/start", methods=["POST"])
+@require_auth
 def api_start(project_id):
     project_config, oscar_config = get_project_config(project_id)
     if not project_config:
@@ -165,6 +220,7 @@ def api_start(project_id):
 
 
 @app.route("/api/project/<project_id>/stop", methods=["POST"])
+@require_auth
 def api_stop(project_id):
     project_config, oscar_config = get_project_config(project_id)
     if not project_config:
@@ -174,6 +230,7 @@ def api_stop(project_id):
 
 
 @app.route("/api/project/<project_id>/restart", methods=["POST"])
+@require_auth
 def api_restart(project_id):
     project_config, oscar_config = get_project_config(project_id)
     if not project_config:
@@ -183,6 +240,7 @@ def api_restart(project_id):
 
 
 @app.route("/api/events")
+@require_auth
 def api_events():
     limit = request.args.get("limit", 100, type=int)
     project_id = request.args.get("project_id")
@@ -192,6 +250,7 @@ def api_events():
 
 
 @app.route("/api/projects", methods=["POST"])
+@require_auth
 def api_add_project():
     """Add a new project to config."""
     data = request.get_json()
@@ -219,6 +278,7 @@ def api_add_project():
 
 
 @app.route("/api/projects/<project_id>", methods=["DELETE"])
+@require_auth
 def api_delete_project(project_id):
     """Remove a project from config."""
     config = load_config()
@@ -232,6 +292,7 @@ def api_delete_project(project_id):
 
 
 @app.route("/api/notifications")
+@require_auth
 def api_notifications():
     limit = request.args.get("limit", 50, type=int)
     event_type = request.args.get("event_type")
@@ -243,6 +304,7 @@ def api_notifications():
 
 
 @app.route("/api/charts/daily_cost")
+@require_auth
 def api_daily_cost():
     """Daily cost data for chart."""
     days = request.args.get("days", 30, type=int)
@@ -251,6 +313,7 @@ def api_daily_cost():
 
 
 @app.route("/api/charts/publishable_rate")
+@require_auth
 def api_publishable_rate():
     """Publishable rate trend for chart."""
     days = request.args.get("days", 30, type=int)
@@ -259,6 +322,7 @@ def api_publishable_rate():
 
 
 @app.route("/api/charts/event_breakdown")
+@require_auth
 def api_event_breakdown():
     """Event type breakdown for chart."""
     data = models.get_event_type_breakdown()
@@ -268,6 +332,7 @@ def api_event_breakdown():
 # --- Task Queue API ---
 
 @app.route("/api/queue")
+@require_auth
 def api_queue_all():
     """Get all queue items, optionally filtered by project_id."""
     project_id = request.args.get("project_id")
@@ -276,6 +341,7 @@ def api_queue_all():
 
 
 @app.route("/api/queue/<project_id>")
+@require_auth
 def api_queue_project(project_id):
     """Get queue items for a specific project."""
     items = task_backlog.list_all(project_id=project_id)
@@ -283,6 +349,7 @@ def api_queue_project(project_id):
 
 
 @app.route("/api/queue", methods=["POST"])
+@require_auth
 def api_queue_add():
     """Add a new batch to the queue."""
     data = request.get_json()
@@ -309,6 +376,7 @@ def api_queue_add():
 
 
 @app.route("/api/queue/<int:batch_id>/priority", methods=["PUT"])
+@require_auth
 def api_queue_priority(batch_id):
     """Update the priority of a batch."""
     data = request.get_json()
@@ -326,6 +394,7 @@ def api_queue_priority(batch_id):
 
 
 @app.route("/api/queue/<int:batch_id>", methods=["DELETE"])
+@require_auth
 def api_queue_delete(batch_id):
     """Delete a batch from the queue."""
     if task_backlog.delete_batch(batch_id):
@@ -334,6 +403,7 @@ def api_queue_delete(batch_id):
 
 
 @app.route("/api/queue/<int:batch_id>/cancel", methods=["POST"])
+@require_auth
 def api_queue_cancel(batch_id):
     """Cancel a running or pending batch."""
     batch = task_backlog.get_batch(batch_id)
@@ -349,6 +419,7 @@ def api_queue_cancel(batch_id):
 # --- Task Decomposer API ---
 
 @app.route("/api/decompose", methods=["POST"])
+@require_auth
 def api_decompose():
     """Decompose a natural language request into structured child tasks."""
     data = request.get_json()
@@ -361,6 +432,7 @@ def api_decompose():
 
 
 @app.route("/api/decompose/enqueue", methods=["POST"])
+@require_auth
 def api_decompose_enqueue():
     """Add decomposed tasks as a batch to the queue."""
     data = request.get_json()
@@ -384,6 +456,7 @@ def api_decompose_enqueue():
 # --- Project Settings API ---
 
 @app.route("/api/projects/<project_id>/settings", methods=["PUT"])
+@require_auth
 def api_update_project_settings(project_id):
     """Update project settings in config.json."""
     data = request.get_json()
@@ -410,6 +483,7 @@ def api_update_project_settings(project_id):
 # --- Recovery action API ---
 
 @app.route("/api/project/<project_id>/resume", methods=["POST"])
+@require_auth
 def api_resume(project_id):
     """Resume an escalated/paused project."""
     project_config, oscar_config = get_project_config(project_id)
@@ -423,6 +497,7 @@ def api_resume(project_id):
 
 
 @app.route("/api/project/<project_id>/abort", methods=["POST"])
+@require_auth
 def api_abort(project_id):
     """Abort a project (stop and mark as aborted)."""
     project_config, oscar_config = get_project_config(project_id)
@@ -437,6 +512,7 @@ def api_abort(project_id):
 # --- Work hours data API ---
 
 @app.route("/api/charts/work_hours")
+@require_auth
 def api_work_hours():
     """Get work hours per project (based on running time from events)."""
     days = request.args.get("days", 30, type=int)
@@ -444,9 +520,40 @@ def api_work_hours():
     return jsonify(data)
 
 
+# --- Health check (no auth, used by Railway) ---
+
+@app.route("/api/health")
+def api_health():
+    return jsonify({"status": "ok", "timestamp": datetime.now().isoformat()})
+
+
+# --- Heartbeat API (from oscar_core.py on local machine) ---
+
+@app.route("/api/heartbeat", methods=["POST"])
+def api_heartbeat():
+    """Receive heartbeat from local oscar_core.py monitoring loop."""
+    data = request.get_json()
+    if not data or not data.get("project_id"):
+        return jsonify({"error": "project_id required"}), 400
+
+    project_id = data["project_id"]
+    status = data.get("status", "UNKNOWN")
+    pid = data.get("pid")
+    current_task = data.get("current_task")
+    last_event = data.get("last_event")
+    timestamp = data.get("timestamp", datetime.now().isoformat())
+
+    # Update project state from heartbeat
+    models.update_project_state(project_id, status, pid)
+    if last_event:
+        models.log_event(project_id, "HEARTBEAT", f"{status} | {last_event}")
+
+    return jsonify({"status": "received", "timestamp": timestamp})
+
+
 if __name__ == "__main__":
     models.init_db()
     config = load_config()
-    port = config["oscar"].get("dashboard_port", 5001)
+    port = int(os.environ.get("PORT", config["oscar"].get("dashboard_port", 5001)))
     print(f"OSCAR2 Dashboard running on http://localhost:{port}")
     app.run(host="0.0.0.0", port=port, debug=False)

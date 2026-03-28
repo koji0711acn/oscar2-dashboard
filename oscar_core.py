@@ -7,6 +7,10 @@ import sys
 import os
 import logging
 
+from dotenv import load_dotenv
+_env_path = os.path.join("C:\\Users\\koji3\\OneDrive\\デスクトップ\\blog_automation", ".env")
+load_dotenv(_env_path, override=False)
+
 import process_monitor
 import cli_controller
 import models
@@ -127,6 +131,13 @@ def monitor_project(project_config, oscar_config):
     if status == "RUNNING" and action == "CONTINUE":
         recovery_orchestrator.reset_retries(project_id)
 
+    # Send heartbeat to remote dashboard
+    try:
+        config = load_config()
+        _send_heartbeat(config, project_config, status, pid)
+    except Exception:
+        pass
+
 
 def run():
     """Main monitoring loop."""
@@ -167,6 +178,32 @@ def run():
             time.sleep(1)
 
     logger.info("=== OSCAR2 Monitoring System Stopped ===")
+
+
+def _send_heartbeat(config, project_config, status, pid):
+    """Send heartbeat to remote dashboard if configured."""
+    remote_url = config.get("oscar", {}).get("remote_dashboard_url")
+    if not remote_url:
+        return
+
+    try:
+        import requests
+        url = f"{remote_url.rstrip('/')}/api/heartbeat"
+        payload = {
+            "project_id": project_config["id"],
+            "status": status,
+            "pid": pid,
+            "current_task": None,
+            "last_event": f"status={status}",
+            "timestamp": __import__("datetime").datetime.now().isoformat(),
+        }
+        token = os.environ.get("DASHBOARD_TOKEN") or config.get("oscar", {}).get("dashboard_token")
+        headers = {}
+        if token:
+            headers["Authorization"] = f"Bearer {token}"
+        requests.post(url, json=payload, headers=headers, timeout=5)
+    except Exception as e:
+        logger.debug(f"Heartbeat send failed: {e}")
 
 
 if __name__ == "__main__":
