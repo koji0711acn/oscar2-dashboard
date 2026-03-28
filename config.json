@@ -13,7 +13,7 @@
       "name": "OSCAR2 自己監視",
       "path": "oscar2",
       "auto_restart": false,
-      "stall_timeout_minutes": 60,
+      "stall_timeout_minutes": 45,
       "max_cost_per_day_usd": 5
     }
   ],

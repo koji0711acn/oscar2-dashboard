@@ -9,6 +9,7 @@ from flask import Flask, render_template, jsonify, request
 import models
 import cli_controller
 import task_backlog
+import task_decomposer
 
 app = Flask(__name__)
 
@@ -233,7 +234,11 @@ def api_delete_project(project_id):
 @app.route("/api/notifications")
 def api_notifications():
     limit = request.args.get("limit", 50, type=int)
-    notifications = models.get_recent_notifications(limit)
+    event_type = request.args.get("event_type")
+    if event_type:
+        notifications = models.get_filtered_notifications(limit, event_type)
+    else:
+        notifications = models.get_recent_notifications(limit)
     return jsonify(notifications)
 
 
@@ -339,6 +344,104 @@ def api_queue_cancel(batch_id):
         models.log_event(batch["project_id"], "BATCH_CANCELLED", f"Batch: {batch['batch_name']}")
         return jsonify({"status": "cancelled"})
     return jsonify({"error": "Batch cannot be cancelled (already completed/failed)"}), 409
+
+
+# --- Task Decomposer API ---
+
+@app.route("/api/decompose", methods=["POST"])
+def api_decompose():
+    """Decompose a natural language request into structured child tasks."""
+    data = request.get_json()
+    if not data or not data.get("request_text"):
+        return jsonify({"error": "request_text is required"}), 400
+
+    project_context = data.get("project_context", "")
+    result = task_decomposer.decompose(data["request_text"], project_context)
+    return jsonify(result)
+
+
+@app.route("/api/decompose/enqueue", methods=["POST"])
+def api_decompose_enqueue():
+    """Add decomposed tasks as a batch to the queue."""
+    data = request.get_json()
+    if not data or not data.get("project_id") or not data.get("tasks"):
+        return jsonify({"error": "project_id and tasks are required"}), 400
+
+    batch_name = data.get("batch_name", "AI Decomposed Tasks")
+    tasks = data["tasks"]
+    tasks_text = task_decomposer.tasks_to_batch_text(tasks)
+    description = f"AI-decomposed: {len(tasks)} child tasks"
+    priority = data.get("priority", 3)
+
+    row_id = task_backlog.add_batch(
+        data["project_id"], batch_name, tasks_text, description, priority
+    )
+    models.log_event(data["project_id"], "BATCH_QUEUED", f"AI decomposed: {batch_name} ({len(tasks)} tasks)")
+    batch = task_backlog.get_batch(row_id)
+    return jsonify({"status": "enqueued", "batch": batch}), 201
+
+
+# --- Project Settings API ---
+
+@app.route("/api/projects/<project_id>/settings", methods=["PUT"])
+def api_update_project_settings(project_id):
+    """Update project settings in config.json."""
+    data = request.get_json()
+    if not data:
+        return jsonify({"error": "JSON body required"}), 400
+
+    config = load_config()
+    for p in config["projects"]:
+        if p["id"] == project_id:
+            if "auto_restart" in data:
+                p["auto_restart"] = bool(data["auto_restart"])
+            if "stall_timeout_minutes" in data:
+                p["stall_timeout_minutes"] = max(1, int(data["stall_timeout_minutes"]))
+            if "max_cost_per_day_usd" in data:
+                p["max_cost_per_day_usd"] = max(1, float(data["max_cost_per_day_usd"]))
+            if "name" in data:
+                p["name"] = str(data["name"])
+            save_config(config)
+            models.log_event(project_id, "CONFIG_CHANGED", f"Settings updated: {list(data.keys())}")
+            return jsonify({"status": "updated", "project": p})
+    return jsonify({"error": "Project not found"}), 404
+
+
+# --- Recovery action API ---
+
+@app.route("/api/project/<project_id>/resume", methods=["POST"])
+def api_resume(project_id):
+    """Resume an escalated/paused project."""
+    project_config, oscar_config = get_project_config(project_id)
+    if not project_config:
+        return jsonify({"error": "Project not found"}), 404
+    # Reset state and try to restart
+    models.update_project_state(project_id, "DEAD", None)
+    models.log_event(project_id, "RESUMED", "Manually resumed by user")
+    pid = cli_controller.start(project_config, oscar_config)
+    return jsonify({"status": "resumed", "pid": pid})
+
+
+@app.route("/api/project/<project_id>/abort", methods=["POST"])
+def api_abort(project_id):
+    """Abort a project (stop and mark as aborted)."""
+    project_config, oscar_config = get_project_config(project_id)
+    if not project_config:
+        return jsonify({"error": "Project not found"}), 404
+    cli_controller.stop(project_config, oscar_config)
+    models.update_project_state(project_id, "DEAD", None)
+    models.log_event(project_id, "ABORT", "Manually aborted by user")
+    return jsonify({"status": "aborted"})
+
+
+# --- Work hours data API ---
+
+@app.route("/api/charts/work_hours")
+def api_work_hours():
+    """Get work hours per project (based on running time from events)."""
+    days = request.args.get("days", 30, type=int)
+    data = models.get_work_hours_by_project(days)
+    return jsonify(data)
 
 
 if __name__ == "__main__":

@@ -288,5 +288,43 @@ def get_event_type_breakdown():
     return [dict(r) for r in rows]
 
 
+def get_work_hours_by_project(days=30):
+    """Estimate work hours per project per day based on STARTED/RUNNING events."""
+    conn = get_connection()
+    cutoff = (datetime.now() - timedelta(days=days)).strftime("%Y-%m-%d")
+    rows = conn.execute("""
+        SELECT DATE(created_at) as date, project_id,
+               COUNT(*) as check_count
+        FROM event_log
+        WHERE DATE(created_at) >= ?
+          AND event_type IN ('CHECK_OK', 'CONTINUE', 'RUNNING', 'STARTED', 'BATCH_STARTED')
+        GROUP BY DATE(created_at), project_id
+        ORDER BY date
+    """, (cutoff,)).fetchall()
+    conn.close()
+    # Each check ~= 1 minute of run time (check_interval_seconds=60)
+    result = []
+    for r in rows:
+        hours = round(r["check_count"] / 60.0, 2)
+        result.append({"date": r["date"], "project_id": r["project_id"], "hours": hours})
+    return result
+
+
+def get_filtered_notifications(limit=50, event_type=None):
+    """Get notifications filtered by event_type."""
+    conn = get_connection()
+    if event_type:
+        rows = conn.execute(
+            "SELECT * FROM notification_log WHERE event_type = ? ORDER BY id DESC LIMIT ?",
+            (event_type, limit)
+        ).fetchall()
+    else:
+        rows = conn.execute(
+            "SELECT * FROM notification_log ORDER BY id DESC LIMIT ?", (limit,)
+        ).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
 # Initialize on import
 init_db()

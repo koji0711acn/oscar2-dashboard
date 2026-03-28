@@ -6,981 +6,441 @@
     <title>OSCAR2 Dashboard</title>
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
     <style>
-        * { margin: 0; padding: 0; box-sizing: border-box; }
-        body {
-            font-family: 'Segoe UI', Tahoma, sans-serif;
-            background: #0f1923;
-            color: #e0e0e0;
-            padding: 16px;
-            min-height: 100vh;
-        }
-        h1 {
-            text-align: center;
-            font-size: 1.6em;
-            margin-bottom: 4px;
-            color: #4fc3f7;
-        }
-        .subtitle {
-            text-align: center;
-            color: #78909c;
-            margin-bottom: 16px;
-            font-size: 0.85em;
-        }
-        /* Tab navigation */
-        .tabs {
-            display: flex;
-            gap: 4px;
-            margin-bottom: 16px;
-            flex-wrap: wrap;
-            justify-content: center;
-        }
-        .tab-btn {
-            padding: 8px 20px;
-            background: #1a2733;
-            border: 1px solid #263238;
-            border-radius: 6px 6px 0 0;
-            color: #90a4ae;
-            cursor: pointer;
-            font-size: 0.85em;
-            font-weight: 600;
-            transition: all 0.2s;
-        }
-        .tab-btn.active {
-            background: #263238;
-            color: #4fc3f7;
-            border-bottom-color: #263238;
-        }
-        .tab-content { display: none; }
-        .tab-content.active { display: block; }
-
-        /* Project cards grid */
-        .grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
-            gap: 12px;
-            margin-bottom: 20px;
-        }
-        .card {
-            background: #1a2733;
-            border-radius: 10px;
-            padding: 16px;
-            border-left: 4px solid #546e7a;
-            transition: border-color 0.3s;
-        }
-        .card.RUNNING  { border-left-color: #4caf50; }
-        .card.STALLED  { border-left-color: #ff9800; }
-        .card.DEAD     { border-left-color: #f44336; }
-        .card.COMPLETED { border-left-color: #2196f3; }
-        .card.UNKNOWN  { border-left-color: #78909c; }
-        .card.IDLE     { border-left-color: #607d8b; }
-        .card-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 10px;
-        }
-        .card-title { font-size: 1.1em; font-weight: 600; }
-        .status-badge {
-            padding: 3px 10px;
-            border-radius: 12px;
-            font-size: 0.75em;
-            font-weight: 700;
-            text-transform: uppercase;
-        }
-        .status-badge.RUNNING  { background: #1b5e20; color: #a5d6a7; }
-        .status-badge.STALLED  { background: #e65100; color: #ffe0b2; }
-        .status-badge.DEAD     { background: #b71c1c; color: #ef9a9a; }
-        .status-badge.COMPLETED { background: #0d47a1; color: #90caf9; }
-        .status-badge.UNKNOWN  { background: #37474f; color: #b0bec5; }
-        .status-badge.IDLE     { background: #455a64; color: #b0bec5; }
-        .card-info {
-            font-size: 0.8em;
-            color: #90a4ae;
-            line-height: 1.7;
-        }
-        .card-info span { color: #cfd8dc; }
-        .card-info .label { display: inline-block; min-width: 100px; }
-        .card-section {
-            margin-top: 8px;
-            padding-top: 8px;
-            border-top: 1px solid #263238;
-        }
-        .card-section-title {
-            font-size: 0.75em;
-            color: #4fc3f7;
-            text-transform: uppercase;
-            margin-bottom: 4px;
-            font-weight: 600;
-        }
-        .task-text {
-            font-size: 0.8em;
-            color: #b0bec5;
-            background: #0f1923;
-            padding: 6px 8px;
-            border-radius: 4px;
-            white-space: nowrap;
-            overflow: hidden;
-            text-overflow: ellipsis;
-        }
-        .commit-text {
-            font-size: 0.78em;
-            color: #81c784;
-            font-family: 'Consolas', monospace;
-        }
-        .card-actions {
-            margin-top: 10px;
-            display: flex;
-            gap: 6px;
-        }
-        .btn {
-            padding: 5px 14px;
-            border: none;
-            border-radius: 6px;
-            cursor: pointer;
-            font-size: 0.78em;
-            font-weight: 600;
-            transition: opacity 0.2s;
-        }
-        .btn:hover { opacity: 0.8; }
-        .btn-start   { background: #2e7d32; color: white; }
-        .btn-stop    { background: #c62828; color: white; }
-        .btn-restart { background: #ef6c00; color: white; }
-        .btn-primary { background: #1565c0; color: white; }
-        .btn-danger  { background: #c62828; color: white; }
-
-        /* Section headers */
-        h2 {
-            font-size: 1.2em;
-            color: #4fc3f7;
-            margin-bottom: 10px;
-        }
-
+        *{margin:0;padding:0;box-sizing:border-box}
+        body{font-family:'Segoe UI',Tahoma,sans-serif;background:#0f1923;color:#e0e0e0;padding:12px;min-height:100vh}
+        h1{text-align:center;font-size:1.5em;margin-bottom:2px;color:#4fc3f7}
+        .subtitle{text-align:center;color:#78909c;margin-bottom:12px;font-size:0.82em}
+        h2{font-size:1.15em;color:#4fc3f7;margin-bottom:8px}
+        h3{font-size:0.95em;color:#4fc3f7;margin-bottom:8px}
+        /* Tabs */
+        .tabs{display:flex;gap:3px;margin-bottom:14px;flex-wrap:wrap;justify-content:center}
+        .tab-btn{padding:7px 16px;background:#1a2733;border:1px solid #263238;border-radius:6px 6px 0 0;color:#90a4ae;cursor:pointer;font-size:0.82em;font-weight:600;transition:all .2s}
+        .tab-btn.active{background:#263238;color:#4fc3f7;border-bottom-color:#263238}
+        .tab-content{display:none}.tab-content.active{display:block}
+        /* Grid & Cards */
+        .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(330px,1fr));gap:10px;margin-bottom:16px}
+        .card{background:#1a2733;border-radius:10px;padding:14px;border-left:4px solid #546e7a;transition:border-color .3s}
+        .card.RUNNING{border-left-color:#4caf50}.card.STALLED{border-left-color:#ff9800}.card.DEAD{border-left-color:#f44336}
+        .card.COMPLETED{border-left-color:#2196f3}.card.UNKNOWN{border-left-color:#78909c}.card.IDLE{border-left-color:#607d8b}
+        .card.ESCALATE,.card.ESCALATED{border-left-color:#ff6f00}.card.PAUSED{border-left-color:#9c27b0}
+        .card-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px}
+        .card-title{font-size:1.05em;font-weight:600}
+        .badge{padding:3px 9px;border-radius:10px;font-size:0.72em;font-weight:700;text-transform:uppercase}
+        .badge.RUNNING{background:#1b5e20;color:#a5d6a7}.badge.STALLED{background:#e65100;color:#ffe0b2}
+        .badge.DEAD{background:#b71c1c;color:#ef9a9a}.badge.COMPLETED{background:#0d47a1;color:#90caf9}
+        .badge.UNKNOWN,.badge.IDLE{background:#37474f;color:#b0bec5}
+        .badge.ESCALATE,.badge.ESCALATED,.badge.ESCALATE_TO_HUMAN{background:#ff6f00;color:#fff8e1}
+        .badge.PAUSED,.badge.PAUSE{background:#4a148c;color:#ce93d8}
+        .badge.pending{background:#37474f;color:#b0bec5}.badge.running{background:#1b5e20;color:#a5d6a7}
+        .badge.completed{background:#0d47a1;color:#90caf9}.badge.failed{background:#b71c1c;color:#ef9a9a}
+        .badge.ERROR,.badge.ABORT{background:#880e4f;color:#f48fb1}
+        .badge.STARTED,.badge.CHECK_OK,.badge.CONTINUE,.badge.BATCH_STARTED,.badge.BATCH_COMPLETED{background:#1b5e20;color:#a5d6a7}
+        .badge.AUTO_RESTART,.badge.STALL_RESTART,.badge.RESTARTED,.badge.BATCH_QUEUED{background:#e65100;color:#ffe0b2}
+        .badge.STOPPED,.badge.BATCH_CANCELLED,.badge.BATCH_FAILED{background:#b71c1c;color:#ef9a9a}
+        .card-info{font-size:0.78em;color:#90a4ae;line-height:1.65}
+        .card-info span{color:#cfd8dc}.card-info .lbl{display:inline-block;min-width:95px}
+        .card-section{margin-top:6px;padding-top:6px;border-top:1px solid #263238}
+        .card-section-title{font-size:0.72em;color:#4fc3f7;text-transform:uppercase;margin-bottom:3px;font-weight:600}
+        .task-text{font-size:0.76em;color:#b0bec5;background:#0f1923;padding:5px 7px;border-radius:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+        .commit-text{font-size:0.75em;color:#81c784;font-family:Consolas,monospace}
+        .card-actions{margin-top:8px;display:flex;gap:5px;flex-wrap:wrap}
+        /* Buttons */
+        .btn{padding:5px 13px;border:none;border-radius:6px;cursor:pointer;font-size:0.76em;font-weight:600;transition:opacity .2s}
+        .btn:hover{opacity:.8}.btn-start{background:#2e7d32;color:#fff}.btn-stop{background:#c62828;color:#fff}
+        .btn-restart{background:#ef6c00;color:#fff}.btn-primary{background:#1565c0;color:#fff}
+        .btn-danger{background:#c62828;color:#fff}.btn-warn{background:#f57f17;color:#fff}
+        .btn-success{background:#2e7d32;color:#fff}.btn-sm{padding:3px 9px;font-size:0.72em}
+        /* Forms */
+        .form-box{background:#1a2733;border-radius:10px;padding:14px;margin-bottom:14px;max-width:700px}
+        .form-row{display:flex;gap:8px;margin-bottom:7px;flex-wrap:wrap;align-items:center}
+        .form-row label{min-width:80px;font-size:0.8em;color:#78909c}
+        .form-row input,.form-row select{flex:1;min-width:140px;background:#0f1923;border:1px solid #263238;color:#e0e0e0;padding:5px 9px;border-radius:5px;font-size:0.8em}
+        .form-row textarea{flex:1;min-width:140px;min-height:90px;background:#0f1923;border:1px solid #263238;color:#e0e0e0;padding:5px 9px;border-radius:5px;font-size:0.8em;font-family:Consolas,monospace;resize:vertical}
+        /* Tables */
+        .tbl{width:100%;border-collapse:collapse;font-size:0.8em}
+        .tbl th{background:#1a2733;padding:7px 9px;text-align:left;color:#4fc3f7;border-bottom:2px solid #263238;position:sticky;top:0}
+        .tbl td{padding:5px 9px;border-bottom:1px solid #1e2d3a}
+        .tbl tr:hover{background:#1a2733}
+        .tbl-wrap{max-height:400px;overflow-y:auto}
         /* Filters */
-        .filters {
-            display: flex;
-            gap: 8px;
-            margin-bottom: 10px;
-            flex-wrap: wrap;
-            align-items: center;
-        }
-        .filters select, .filters input {
-            background: #1a2733;
-            border: 1px solid #263238;
-            color: #e0e0e0;
-            padding: 6px 10px;
-            border-radius: 6px;
-            font-size: 0.82em;
-        }
-        .filters label {
-            font-size: 0.82em;
-            color: #78909c;
-        }
-
-        /* Events table */
-        .events-table {
-            width: 100%;
-            border-collapse: collapse;
-            font-size: 0.82em;
-        }
-        .events-table th {
-            background: #1a2733;
-            padding: 8px 10px;
-            text-align: left;
-            color: #4fc3f7;
-            border-bottom: 2px solid #263238;
-            position: sticky;
-            top: 0;
-        }
-        .events-table td {
-            padding: 6px 10px;
-            border-bottom: 1px solid #1e2d3a;
-        }
-        .events-table tr:hover { background: #1a2733; }
-        .event-type {
-            font-weight: 600;
-            padding: 2px 6px;
-            border-radius: 4px;
-            font-size: 0.82em;
-        }
-        .event-type.AUTO_RESTART, .event-type.STALL_RESTART, .event-type.RESTARTED { background: #e65100; color: #ffe0b2; }
-        .event-type.STARTED, .event-type.CHECK_OK { background: #1b5e20; color: #a5d6a7; }
-        .event-type.STOPPED { background: #b71c1c; color: #ef9a9a; }
-        .event-type.ERROR, .event-type.ABORT { background: #880e4f; color: #f48fb1; }
-        .event-type.COMPLETED { background: #0d47a1; color: #90caf9; }
-        .event-type.ESCALATE, .event-type.ESCALATE_TO_HUMAN { background: #ff6f00; color: #fff8e1; }
-        .event-type.PAUSE { background: #4a148c; color: #ce93d8; }
-        .events-wrapper {
-            max-height: 400px;
-            overflow-y: auto;
-        }
-
-        /* Notifications table */
-        .notif-table {
-            width: 100%;
-            border-collapse: collapse;
-            font-size: 0.82em;
-        }
-        .notif-table th {
-            background: #1a2733;
-            padding: 8px 10px;
-            text-align: left;
-            color: #ffb74d;
-            border-bottom: 2px solid #263238;
-        }
-        .notif-table td {
-            padding: 6px 10px;
-            border-bottom: 1px solid #1e2d3a;
-        }
-
+        .filters{display:flex;gap:7px;margin-bottom:8px;flex-wrap:wrap;align-items:center}
+        .filters select,.filters input{background:#1a2733;border:1px solid #263238;color:#e0e0e0;padding:5px 9px;border-radius:5px;font-size:0.8em}
+        .filters label{font-size:0.8em;color:#78909c}
         /* Charts */
-        .charts-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fill, minmax(380px, 1fr));
-            gap: 16px;
-            margin-bottom: 20px;
-        }
-        .chart-card {
-            background: #1a2733;
-            border-radius: 10px;
-            padding: 16px;
-        }
-        .chart-card h3 {
-            font-size: 0.95em;
-            color: #4fc3f7;
-            margin-bottom: 10px;
-        }
-
-        /* Add project form */
-        .add-form {
-            background: #1a2733;
-            border-radius: 10px;
-            padding: 16px;
-            margin-bottom: 16px;
-            max-width: 600px;
-        }
-        .add-form h3 {
-            color: #4fc3f7;
-            margin-bottom: 10px;
-            font-size: 1em;
-        }
-        .form-row {
-            display: flex;
-            gap: 8px;
-            margin-bottom: 8px;
-            flex-wrap: wrap;
-            align-items: center;
-        }
-        .form-row label {
-            min-width: 80px;
-            font-size: 0.82em;
-            color: #78909c;
-        }
-        .form-row input, .form-row select {
-            flex: 1;
-            min-width: 150px;
-            background: #0f1923;
-            border: 1px solid #263238;
-            color: #e0e0e0;
-            padding: 6px 10px;
-            border-radius: 6px;
-            font-size: 0.82em;
-        }
-
-        /* Queue-specific styles */
-        .queue-badge {
-            display: inline-block;
-            padding: 1px 7px;
-            border-radius: 8px;
-            font-size: 0.72em;
-            font-weight: 700;
-            text-transform: uppercase;
-        }
-        .queue-badge.pending  { background: #37474f; color: #b0bec5; }
-        .queue-badge.running  { background: #1b5e20; color: #a5d6a7; }
-        .queue-badge.completed { background: #0d47a1; color: #90caf9; }
-        .queue-badge.failed   { background: #b71c1c; color: #ef9a9a; }
-        .queue-item {
-            background: #0f1923;
-            border: 1px solid #263238;
-            border-radius: 8px;
-            padding: 12px;
-            margin-bottom: 8px;
-        }
-        .queue-item-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 6px;
-        }
-        .queue-item-title { font-weight: 600; font-size: 0.9em; }
-        .queue-item-meta { font-size: 0.78em; color: #78909c; line-height: 1.6; }
-        .queue-item-actions { display: flex; gap: 4px; margin-top: 6px; }
-        .queue-item-text {
-            font-size: 0.78em;
-            color: #90a4ae;
-            background: #1a2733;
-            padding: 6px 8px;
-            border-radius: 4px;
-            max-height: 80px;
-            overflow-y: auto;
-            white-space: pre-wrap;
-            margin-top: 4px;
-        }
-        .priority-select {
-            background: #1a2733;
-            border: 1px solid #263238;
-            color: #e0e0e0;
-            padding: 2px 6px;
-            border-radius: 4px;
-            font-size: 0.78em;
-        }
-        .form-row textarea {
-            flex: 1;
-            min-width: 150px;
-            min-height: 100px;
-            background: #0f1923;
-            border: 1px solid #263238;
-            color: #e0e0e0;
-            padding: 6px 10px;
-            border-radius: 6px;
-            font-size: 0.82em;
-            font-family: 'Consolas', monospace;
-            resize: vertical;
-        }
-        .btn-sm {
-            padding: 3px 10px;
-            font-size: 0.72em;
-        }
-        .btn-warn { background: #f57f17; color: white; }
-
-        .refresh-note {
-            text-align: center;
-            color: #546e7a;
-            font-size: 0.78em;
-            margin-top: 16px;
-            padding-bottom: 16px;
-        }
-        .refresh-note .countdown { color: #4fc3f7; }
-
+        .charts-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(360px,1fr));gap:14px;margin-bottom:16px}
+        .chart-card{background:#1a2733;border-radius:10px;padding:14px}
+        .chart-card h3{font-size:0.9em;color:#4fc3f7;margin-bottom:8px}
+        /* Queue items */
+        .q-item{background:#0f1923;border:1px solid #263238;border-radius:8px;padding:10px;margin-bottom:7px}
+        .q-item-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:5px}
+        .q-item-title{font-weight:600;font-size:0.88em}
+        .q-item-meta{font-size:0.76em;color:#78909c;line-height:1.5}
+        .q-item-text{font-size:0.76em;color:#90a4ae;background:#1a2733;padding:5px 7px;border-radius:4px;max-height:70px;overflow-y:auto;white-space:pre-wrap;margin-top:3px}
+        .q-item-actions{display:flex;gap:4px;margin-top:5px}
+        .priority-sel{background:#1a2733;border:1px solid #263238;color:#e0e0e0;padding:2px 5px;border-radius:4px;font-size:0.76em}
+        /* Chat UI */
+        .chat-area{display:flex;gap:12px;margin-bottom:12px}
+        .chat-input-side{flex:1;min-width:250px}
+        .chat-output-side{flex:1.5;min-width:300px;background:#1a2733;border-radius:10px;padding:12px;max-height:500px;overflow-y:auto}
+        .chat-msg{margin-bottom:8px;padding:8px;border-radius:6px;font-size:0.82em;line-height:1.5}
+        .chat-msg.user{background:#263238;color:#b0bec5}.chat-msg.ai{background:#0d47a1;color:#e0e0e0}
+        .child-task{background:#0f1923;border:1px solid #263238;border-radius:6px;padding:8px;margin:6px 0;font-size:0.8em}
+        .child-task h4{color:#4fc3f7;font-size:0.88em;margin-bottom:4px}
+        .child-task .ct-field{color:#78909c;line-height:1.5}
+        .child-task .ct-field b{color:#b0bec5}
+        /* Footer */
+        .refresh-note{text-align:center;color:#546e7a;font-size:0.76em;margin-top:14px;padding-bottom:14px}
+        .refresh-note .cd{color:#4fc3f7}
         /* Responsive */
-        @media (max-width: 768px) {
-            body { padding: 8px; }
-            .grid { grid-template-columns: 1fr; gap: 8px; }
-            .charts-grid { grid-template-columns: 1fr; }
-            h1 { font-size: 1.3em; }
-            .card { padding: 12px; }
-            .card-info .label { min-width: 80px; }
-            .tabs { gap: 2px; }
-            .tab-btn { padding: 6px 12px; font-size: 0.78em; }
-            .events-table { font-size: 0.75em; }
-            .filters { flex-direction: column; }
-            .add-form { max-width: 100%; }
-        }
-        @media (max-width: 480px) {
-            .grid { grid-template-columns: 1fr; }
-            .card-header { flex-direction: column; gap: 4px; align-items: flex-start; }
-            .card-actions { flex-wrap: wrap; }
-        }
+        @media(max-width:768px){body{padding:6px}.grid{grid-template-columns:1fr}.charts-grid{grid-template-columns:1fr}h1{font-size:1.2em}.card{padding:10px}.tabs{gap:2px}.tab-btn{padding:5px 10px;font-size:0.75em}.tbl{font-size:0.72em}.chat-area{flex-direction:column}.form-box{max-width:100%}}
+        @media(max-width:480px){.card-header{flex-direction:column;gap:3px;align-items:flex-start}.card-actions{flex-wrap:wrap}}
     </style>
 </head>
 <body>
-    <h1>OSCAR2 Dashboard</h1>
-    <p class="subtitle">Agent Teams Monitoring & Recovery System</p>
+<h1>OSCAR2 Dashboard</h1>
+<p class="subtitle">Agent Teams Monitoring & Recovery System</p>
 
-    <div class="tabs">
-        <button class="tab-btn active" onclick="switchTab('projects')">Projects</button>
-        <button class="tab-btn" onclick="switchTab('queue')">Task Queue</button>
-        <button class="tab-btn" onclick="switchTab('events')">Events</button>
-        <button class="tab-btn" onclick="switchTab('notifications')">Notifications</button>
-        <button class="tab-btn" onclick="switchTab('charts')">Charts</button>
-        <button class="tab-btn" onclick="switchTab('manage')">Manage</button>
-    </div>
+<div class="tabs">
+    <button class="tab-btn active" onclick="switchTab('home',this)">Home</button>
+    <button class="tab-btn" onclick="switchTab('queue',this)">Task Queue</button>
+    <button class="tab-btn" onclick="switchTab('decomposer',this)">Task Decomposer</button>
+    <button class="tab-btn" onclick="switchTab('analytics',this)">Analytics</button>
+    <button class="tab-btn" onclick="switchTab('notifications',this)">Notifications</button>
+</div>
 
-    <!-- Projects Tab -->
-    <div id="tab-projects" class="tab-content active">
-        <div class="grid" id="projects-grid">
-            {% for p in projects %}
-            <div class="card {{ p.status }}">
-                <div class="card-header">
-                    <span class="card-title">{{ p.name }}</span>
-                    <span class="status-badge {{ p.status }}">{{ p.status }}</span>
-                </div>
-                <div class="card-info">
-                    <span class="label">ID:</span> <span>{{ p.id }}</span><br>
-                    <span class="label">PID:</span> <span>{{ p.pid or '---' }}</span><br>
-                    <span class="label">Last Check:</span> <span>{{ p.last_check or '---' }}</span><br>
-                    <span class="label">Restarts:</span> <span>{{ p.restart_count }}</span><br>
-                    <span class="label">Auto-Restart:</span> <span>{{ '有効' if p.auto_restart else '無効' }}</span><br>
-                    <span class="label">Uptime:</span> <span>{{ "%.0f"|format(p.uptime_seconds // 3600) }}h {{ "%.0f"|format((p.uptime_seconds % 3600) // 60) }}m</span><br>
-                    {% if p.estimated_tokens is not none %}
-                    <span class="label">Tokens (est):</span> <span>{{ "{:,}".format(p.estimated_tokens) }}</span><br>
-                    {% endif %}
-                </div>
-
-                {% if p.current_task %}
-                <div class="card-section">
-                    <div class="card-section-title">Current Task</div>
-                    <div class="task-text">{{ p.current_task }}</div>
-                </div>
-                {% endif %}
-
-                {% if p.latest_commit %}
-                <div class="card-section">
-                    <div class="card-section-title">Latest Commit</div>
-                    <div class="commit-text">{{ p.latest_commit }}</div>
-                </div>
-                {% endif %}
-
-                {% if p.test_summary %}
-                <div class="card-section">
-                    <div class="card-section-title">Test Results</div>
-                    <div class="task-text">{{ p.test_summary }}</div>
-                </div>
-                {% endif %}
-
-                <div class="card-section">
-                    <div class="card-section-title">Task Queue</div>
-                    <div class="card-info" style="margin:0">
-                        {% if p.running_batch %}
-                        <span class="label">Running:</span> <span style="color:#a5d6a7">{{ p.running_batch }}</span><br>
-                        {% endif %}
-                        <span class="label">Pending:</span> <span>{{ p.pending_batches }}</span>
-                        <span class="label" style="margin-left:8px">Completed:</span> <span>{{ p.completed_batches }}</span>
-                    </div>
-                </div>
-
-                <div class="card-actions">
-                    <button class="btn btn-start" onclick="apiAction('{{ p.id }}', 'start')">Start</button>
-                    <button class="btn btn-stop" onclick="apiAction('{{ p.id }}', 'stop')">Stop</button>
-                    <button class="btn btn-restart" onclick="apiAction('{{ p.id }}', 'restart')">Restart</button>
-                </div>
+<!-- ============ HOME TAB ============ -->
+<div id="tab-home" class="tab-content active">
+    <div class="grid">
+    {% for p in projects %}
+    <div class="card {{ p.status }}">
+        <div class="card-header">
+            <span class="card-title">{{ p.name }}</span>
+            <span class="badge {{ p.status }}">{{ p.status }}</span>
+        </div>
+        <div class="card-info">
+            <span class="lbl">ID:</span><span>{{ p.id }}</span><br>
+            <span class="lbl">PID:</span><span>{{ p.pid or '---' }}</span><br>
+            <span class="lbl">Last Check:</span><span>{{ p.last_check or '---' }}</span><br>
+            <span class="lbl">Restarts:</span><span>{{ p.restart_count }}</span>
+            <span class="lbl" style="margin-left:8px">Auto:</span><span>{{ '有効' if p.auto_restart else '無効' }}</span><br>
+            <span class="lbl">Uptime:</span><span>{{ "%.0f"|format(p.uptime_seconds // 3600) }}h {{ "%.0f"|format((p.uptime_seconds % 3600) // 60) }}m</span>
+            {% if p.estimated_tokens is not none %}
+            <span class="lbl" style="margin-left:8px">Tokens:</span><span>{{ "{:,}".format(p.estimated_tokens) }}</span>
+            {% endif %}
+        </div>
+        {% if p.running_batch %}
+        <div class="card-section"><div class="card-section-title">Running Batch</div>
+            <div class="task-text" style="color:#a5d6a7">{{ p.running_batch }}</div></div>
+        {% endif %}
+        {% if p.current_task %}
+        <div class="card-section"><div class="card-section-title">Current Task</div>
+            <div class="task-text">{{ p.current_task }}</div></div>
+        {% endif %}
+        {% if p.latest_commit %}
+        <div class="card-section"><div class="card-section-title">Latest Commit</div>
+            <div class="commit-text">{{ p.latest_commit }}</div></div>
+        {% endif %}
+        <div class="card-section"><div class="card-section-title">Queue</div>
+            <div class="card-info" style="margin:0">
+                <span class="lbl">Pending:</span><span>{{ p.pending_batches }}</span>
+                <span class="lbl" style="margin-left:8px">Done:</span><span>{{ p.completed_batches }}</span>
             </div>
-            {% endfor %}
-            {% if not projects %}
-            <div class="card UNKNOWN">
-                <div class="card-info" style="text-align:center; padding: 20px;">No projects configured</div>
-            </div>
+        </div>
+        <div class="card-actions">
+            <button class="btn btn-start btn-sm" onclick="apiPost('/api/project/{{p.id}}/start')">Start</button>
+            <button class="btn btn-stop btn-sm" onclick="apiPost('/api/project/{{p.id}}/stop')">Stop</button>
+            <button class="btn btn-restart btn-sm" onclick="apiPost('/api/project/{{p.id}}/restart')">Restart</button>
+            {% if p.status in ('ESCALATE','ESCALATED','PAUSED','PAUSE') %}
+            <button class="btn btn-success btn-sm" onclick="apiPost('/api/project/{{p.id}}/resume')">Resume</button>
+            <button class="btn btn-danger btn-sm" onclick="apiPost('/api/project/{{p.id}}/abort')">Abort</button>
             {% endif %}
         </div>
     </div>
+    {% endfor %}
+    {% if not projects %}<div class="card UNKNOWN"><div class="card-info" style="text-align:center;padding:16px">No projects configured</div></div>{% endif %}
+    </div>
 
-    <!-- Task Queue Tab -->
-    <div id="tab-queue" class="tab-content">
-        <h2>Task Queue</h2>
-
-        <div class="add-form" style="max-width:700px">
-            <h3>Add New Batch</h3>
-            <div class="form-row">
-                <label>Project:</label>
-                <select id="q-project">
-                    {% for p in projects %}
-                    <option value="{{ p.id }}">{{ p.name }} ({{ p.id }})</option>
-                    {% endfor %}
+    <!-- Manage section (inline) -->
+    <details style="margin-top:8px"><summary style="color:#4fc3f7;cursor:pointer;font-size:0.9em;font-weight:600">Project Management</summary>
+    <div style="margin-top:8px">
+    <div class="form-box">
+        <h3>Add Project</h3>
+        <div class="form-row"><label>ID:</label><input id="np-id" placeholder="my_project"></div>
+        <div class="form-row"><label>Name:</label><input id="np-name" placeholder="My Project"></div>
+        <div class="form-row"><label>Path:</label><input id="np-path" placeholder="relative to base_path"></div>
+        <div class="form-row"><label>Auto-Restart:</label><select id="np-ar"><option value="true">Yes</option><option value="false">No</option></select></div>
+        <div class="form-row"><label>Max Cost/Day:</label><input type="number" id="np-cost" value="10" min="1"></div>
+        <div class="form-row"><button class="btn btn-primary" onclick="addProject()">Add</button></div>
+    </div>
+    <h3>Registered Projects</h3>
+    <table class="tbl">
+        <thead><tr><th>ID</th><th>Name</th><th>Path</th><th>Auto-Restart</th><th>Stall Timeout</th><th>Max Cost</th><th>Actions</th></tr></thead>
+        <tbody>
+        {% for p in projects %}
+        <tr>
+            <td>{{ p.id }}</td>
+            <td>{{ p.name }}</td>
+            <td>{{ p.path }}</td>
+            <td>
+                <select class="priority-sel" onchange="updateSetting('{{p.id}}','auto_restart',this.value==='true')">
+                    <option value="true" {{'selected' if p.auto_restart}}>Yes</option>
+                    <option value="false" {{'selected' if not p.auto_restart}}>No</option>
                 </select>
-            </div>
-            <div class="form-row">
-                <label>Batch Name:</label>
-                <input type="text" id="q-batch-name" placeholder="e.g. Feature X implementation">
-            </div>
-            <div class="form-row">
-                <label>Description:</label>
-                <input type="text" id="q-description" placeholder="Brief description">
-            </div>
-            <div class="form-row">
-                <label>Priority:</label>
-                <select id="q-priority">
-                    <option value="1">1 (Highest)</option>
-                    <option value="2">2</option>
-                    <option value="3" selected>3 (Normal)</option>
-                    <option value="4">4</option>
-                    <option value="5">5 (Lowest)</option>
-                </select>
-            </div>
-            <div class="form-row">
-                <label>Task Text:</label>
-                <textarea id="q-tasks-text" placeholder="Full instructions to pass to Agent Teams..."></textarea>
-            </div>
-            <div class="form-row">
-                <button class="btn btn-primary" onclick="addBatch()">Add to Queue</button>
-            </div>
-        </div>
-
-        <div class="filters">
-            <label>Filter by Project:</label>
-            <select id="q-filter-project" onchange="loadQueue()">
-                <option value="">All Projects</option>
-                {% for p in projects %}
-                <option value="{{ p.id }}">{{ p.name }}</option>
-                {% endfor %}
-            </select>
-        </div>
-
-        <div id="queue-list"></div>
+            </td>
+            <td><input type="number" value="{{p.stall_timeout_minutes}}" min="1" style="width:60px;background:#0f1923;border:1px solid #263238;color:#e0e0e0;border-radius:4px;padding:2px 4px;font-size:0.85em" onchange="updateSetting('{{p.id}}','stall_timeout_minutes',parseInt(this.value))"></td>
+            <td><input type="number" value="{{p.max_cost_per_day_usd}}" min="1" style="width:60px;background:#0f1923;border:1px solid #263238;color:#e0e0e0;border-radius:4px;padding:2px 4px;font-size:0.85em" onchange="updateSetting('{{p.id}}','max_cost_per_day_usd',parseFloat(this.value))"></td>
+            <td><button class="btn btn-danger btn-sm" onclick="deleteProject('{{p.id}}')">Delete</button></td>
+        </tr>
+        {% endfor %}
+        </tbody>
+    </table>
     </div>
+    </details>
 
-    <!-- Events Tab -->
-    <div id="tab-events" class="tab-content">
-        <h2>Event Log</h2>
-        <div class="filters">
-            <label>Project:</label>
-            <select id="filter-project" onchange="filterEvents()">
-                <option value="">All</option>
-                {% for p in projects %}
-                <option value="{{ p.id }}">{{ p.name }}</option>
-                {% endfor %}
-            </select>
-            <label>Type:</label>
-            <select id="filter-type" onchange="filterEvents()">
-                <option value="">All</option>
-                <option value="CHECK_OK">CHECK_OK</option>
-                <option value="STARTED">STARTED</option>
-                <option value="STOPPED">STOPPED</option>
-                <option value="AUTO_RESTART">AUTO_RESTART</option>
-                <option value="STALL_RESTART">STALL_RESTART</option>
-                <option value="RESTARTED">RESTARTED</option>
-                <option value="ERROR">ERROR</option>
-                <option value="COMPLETED">COMPLETED</option>
-                <option value="ESCALATE">ESCALATE</option>
-                <option value="PAUSE">PAUSE</option>
-                <option value="ABORT">ABORT</option>
-            </select>
+    <!-- Events log (inline) -->
+    <details style="margin-top:10px"><summary style="color:#4fc3f7;cursor:pointer;font-size:0.9em;font-weight:600">Event Log</summary>
+    <div style="margin-top:8px">
+    <div class="filters">
+        <label>Project:</label>
+        <select id="f-proj" onchange="filterEvents()"><option value="">All</option>{% for p in projects %}<option value="{{p.id}}">{{p.name}}</option>{% endfor %}</select>
+        <label>Type:</label>
+        <select id="f-type" onchange="filterEvents()"><option value="">All</option>
+            <option>CHECK_OK</option><option>CONTINUE</option><option>STARTED</option><option>STOPPED</option>
+            <option>AUTO_RESTART</option><option>RESTARTED</option><option>ERROR</option><option>COMPLETED</option>
+            <option>ESCALATE</option><option>PAUSE</option><option>ABORT</option>
+            <option>BATCH_STARTED</option><option>BATCH_COMPLETED</option><option>BATCH_QUEUED</option><option>BATCH_CANCELLED</option>
+        </select>
+    </div>
+    <div class="tbl-wrap">
+    <table class="tbl"><thead><tr><th>Time</th><th>Project</th><th>Event</th><th>Message</th></tr></thead>
+    <tbody id="ev-body">
+        {% for e in events %}<tr><td>{{e.created_at}}</td><td>{{e.project_id}}</td><td><span class="badge {{e.event_type}}">{{e.event_type}}</span></td><td>{{e.message}}</td></tr>{% endfor %}
+        {% if not events %}<tr><td colspan="4" style="text-align:center;color:#546e7a">No events</td></tr>{% endif %}
+    </tbody></table>
+    </div>
+    </div>
+    </details>
+</div>
+
+<!-- ============ TASK QUEUE TAB ============ -->
+<div id="tab-queue" class="tab-content">
+    <h2>Task Queue</h2>
+    <div class="form-box">
+        <h3>Add New Batch</h3>
+        <div class="form-row"><label>Project:</label><select id="q-proj">{% for p in projects %}<option value="{{p.id}}">{{p.name}} ({{p.id}})</option>{% endfor %}</select></div>
+        <div class="form-row"><label>Batch Name:</label><input id="q-name" placeholder="Feature X implementation"></div>
+        <div class="form-row"><label>Description:</label><input id="q-desc" placeholder="Brief description"></div>
+        <div class="form-row"><label>Priority:</label><select id="q-pri"><option value="1">1 (Highest)</option><option value="2">2</option><option value="3" selected>3 (Normal)</option><option value="4">4</option><option value="5">5 (Lowest)</option></select></div>
+        <div class="form-row"><label>Task Text:</label><textarea id="q-text" placeholder="Full instructions for Agent Teams..."></textarea></div>
+        <div class="form-row"><button class="btn btn-primary" onclick="addBatch()">Add to Queue</button></div>
+    </div>
+    <div class="filters"><label>Filter:</label><select id="q-filt" onchange="loadQueue()"><option value="">All Projects</option>{% for p in projects %}<option value="{{p.id}}">{{p.name}}</option>{% endfor %}</select></div>
+    <div id="queue-list"></div>
+</div>
+
+<!-- ============ TASK DECOMPOSER TAB ============ -->
+<div id="tab-decomposer" class="tab-content">
+    <h2>Task Decomposer (AI)</h2>
+    <div class="chat-area">
+        <div class="chat-input-side">
+            <div class="form-box" style="max-width:100%">
+                <div class="form-row"><label>Project:</label><select id="d-proj">{% for p in projects %}<option value="{{p.id}}">{{p.name}}</option>{% endfor %}</select></div>
+                <div class="form-row"><label>Context:</label><input id="d-ctx" placeholder="Optional project context..."></div>
+                <div class="form-row"><label>Request:</label><textarea id="d-req" style="min-height:120px" placeholder="e.g. 'Fix the WordPress posting bug and add retry logic'"></textarea></div>
+                <div class="form-row"><button class="btn btn-primary" onclick="decompose()" id="d-btn">Decompose Tasks</button></div>
+            </div>
         </div>
-        <div class="events-wrapper">
-            <table class="events-table">
-                <thead>
-                    <tr>
-                        <th>Time</th>
-                        <th>Project</th>
-                        <th>Event</th>
-                        <th>Message</th>
-                    </tr>
-                </thead>
-                <tbody id="events-body">
-                    {% for e in events %}
-                    <tr>
-                        <td>{{ e.created_at }}</td>
-                        <td>{{ e.project_id }}</td>
-                        <td><span class="event-type {{ e.event_type }}">{{ e.event_type }}</span></td>
-                        <td>{{ e.message }}</td>
-                    </tr>
-                    {% endfor %}
-                    {% if not events %}
-                    <tr><td colspan="4" style="text-align:center; color:#546e7a;">No events yet</td></tr>
-                    {% endif %}
-                </tbody>
-            </table>
+        <div class="chat-output-side" id="d-output">
+            <div style="color:#546e7a;text-align:center;padding:40px 0">Enter a request and click "Decompose Tasks" to get structured child tasks from AI.</div>
         </div>
     </div>
+</div>
 
-    <!-- Notifications Tab -->
-    <div id="tab-notifications" class="tab-content">
-        <h2>Notification History</h2>
-        <table class="notif-table">
-            <thead>
-                <tr>
-                    <th>Time</th>
-                    <th>Project</th>
-                    <th>Type</th>
-                    <th>Title</th>
-                    <th>Message</th>
-                </tr>
-            </thead>
-            <tbody>
-                {% for n in notifications %}
-                <tr>
-                    <td>{{ n.created_at }}</td>
-                    <td>{{ n.project_id or '---' }}</td>
-                    <td><span class="event-type {{ n.event_type or '' }}">{{ n.event_type or '---' }}</span></td>
-                    <td>{{ n.title }}</td>
-                    <td>{{ n.message }}</td>
-                </tr>
-                {% endfor %}
-                {% if not notifications %}
-                <tr><td colspan="5" style="text-align:center; color:#546e7a;">No notifications yet</td></tr>
-                {% endif %}
-            </tbody>
-        </table>
+<!-- ============ ANALYTICS TAB ============ -->
+<div id="tab-analytics" class="tab-content">
+    <h2>Analytics</h2>
+    <div class="filters">
+        <label>Days:</label><select id="a-days" onchange="loadCharts()"><option value="7">7 days</option><option value="14">14 days</option><option value="30" selected>30 days</option><option value="90">90 days</option></select>
     </div>
-
-    <!-- Charts Tab -->
-    <div id="tab-charts" class="tab-content">
-        <h2>Trends & Analytics</h2>
-        <div class="charts-grid">
-            <div class="chart-card">
-                <h3>Daily Cost (USD)</h3>
-                <canvas id="costChart"></canvas>
-            </div>
-            <div class="chart-card">
-                <h3>Publishable Rate (%)</h3>
-                <canvas id="qualityChart"></canvas>
-            </div>
-            <div class="chart-card">
-                <h3>Event Type Breakdown</h3>
-                <canvas id="eventPieChart"></canvas>
-            </div>
-        </div>
+    <div class="charts-grid">
+        <div class="chart-card"><h3>Daily Cost (USD)</h3><canvas id="ch-cost"></canvas></div>
+        <div class="chart-card"><h3>Publishable Rate (%)</h3><canvas id="ch-quality"></canvas></div>
+        <div class="chart-card"><h3>Event Type Breakdown</h3><canvas id="ch-events"></canvas></div>
+        <div class="chart-card"><h3>Work Hours by Project</h3><canvas id="ch-hours"></canvas></div>
     </div>
+</div>
 
-    <!-- Manage Tab -->
-    <div id="tab-manage" class="tab-content">
-        <h2>Project Management</h2>
-        <div class="add-form">
-            <h3>Add New Project</h3>
-            <div class="form-row">
-                <label>ID:</label>
-                <input type="text" id="new-id" placeholder="my_project">
-            </div>
-            <div class="form-row">
-                <label>Name:</label>
-                <input type="text" id="new-name" placeholder="My Project">
-            </div>
-            <div class="form-row">
-                <label>Path:</label>
-                <input type="text" id="new-path" placeholder="my_project (relative to base_path)">
-            </div>
-            <div class="form-row">
-                <label>Auto-Restart:</label>
-                <select id="new-auto-restart">
-                    <option value="true">Yes</option>
-                    <option value="false">No</option>
-                </select>
-            </div>
-            <div class="form-row">
-                <label>Max Cost/Day:</label>
-                <input type="number" id="new-max-cost" value="10" step="1" min="1">
-            </div>
-            <div class="form-row">
-                <button class="btn btn-primary" onclick="addProject()">Add Project</button>
-            </div>
-        </div>
-
-        <h3 style="color: #4fc3f7; margin-bottom: 10px;">Registered Projects</h3>
-        <table class="events-table">
-            <thead>
-                <tr>
-                    <th>ID</th>
-                    <th>Name</th>
-                    <th>Path</th>
-                    <th>Auto-Restart</th>
-                    <th>Action</th>
-                </tr>
-            </thead>
-            <tbody>
-                {% for p in projects %}
-                <tr>
-                    <td>{{ p.id }}</td>
-                    <td>{{ p.name }}</td>
-                    <td>{{ p.path }}</td>
-                    <td>{{ '有効' if p.auto_restart else '無効' }}</td>
-                    <td><button class="btn btn-danger" onclick="deleteProject('{{ p.id }}')">Delete</button></td>
-                </tr>
-                {% endfor %}
-            </tbody>
-        </table>
+<!-- ============ NOTIFICATIONS TAB ============ -->
+<div id="tab-notifications" class="tab-content">
+    <h2>Notifications</h2>
+    <div class="filters">
+        <label>Type:</label>
+        <select id="n-type" onchange="loadNotifications()">
+            <option value="">All</option>
+            <option>ESCALATE</option><option>ESCALATE_TO_HUMAN</option><option>COMPLETED</option>
+            <option>ABORT</option><option>PAUSE</option><option>ERROR</option><option>CHECK_OK</option>
+        </select>
+        <button class="btn btn-primary btn-sm" onclick="testNotification()">Send Test Notification</button>
     </div>
+    <div class="tbl-wrap">
+    <table class="tbl"><thead><tr><th>Time</th><th>Project</th><th>Type</th><th>Title</th><th>Message</th></tr></thead>
+    <tbody id="n-body">
+        {% for n in notifications %}<tr><td>{{n.created_at}}</td><td>{{n.project_id or '---'}}</td><td><span class="badge {{n.event_type or ''}}">{{n.event_type or '---'}}</span></td><td>{{n.title}}</td><td>{{n.message}}</td></tr>{% endfor %}
+        {% if not notifications %}<tr><td colspan="5" style="text-align:center;color:#546e7a">No notifications</td></tr>{% endif %}
+    </tbody></table>
+    </div>
+</div>
 
-    <p class="refresh-note">Auto-refresh: <span class="countdown" id="countdown">10</span>s</p>
+<p class="refresh-note">Auto-refresh: <span class="cd" id="cd">10</span>s</p>
 
-    <script>
-        // Tab switching
-        function switchTab(name) {
-            document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
-            document.querySelectorAll('.tab-btn').forEach(el => el.classList.remove('active'));
-            document.getElementById('tab-' + name).classList.add('active');
-            event.target.classList.add('active');
-            if (name === 'charts') loadCharts();
-            if (name === 'queue') loadQueue();
+<script>
+// === Tab switching ===
+function switchTab(name,el){
+    document.querySelectorAll('.tab-content').forEach(t=>t.classList.remove('active'));
+    document.querySelectorAll('.tab-btn').forEach(b=>b.classList.remove('active'));
+    document.getElementById('tab-'+name).classList.add('active');
+    if(el)el.classList.add('active');
+    if(name==='queue')loadQueue();
+    if(name==='analytics')loadCharts();
+    if(name==='notifications')loadNotifications();
+}
+
+// === Generic API helpers ===
+function esc(s){if(!s)return'';const d=document.createElement('div');d.textContent=s;return d.innerHTML}
+async function apiPost(url){try{await fetch(url,{method:'POST'});location.reload()}catch(e){alert('Error: '+e.message)}}
+async function apiJson(url,opts){const r=await fetch(url,opts);return r.json()}
+
+// === Project management ===
+async function addProject(){
+    const d={id:document.getElementById('np-id').value.trim(),name:document.getElementById('np-name').value.trim(),path:document.getElementById('np-path').value.trim(),auto_restart:document.getElementById('np-ar').value==='true',max_cost_per_day_usd:parseFloat(document.getElementById('np-cost').value)||10};
+    if(!d.id||!d.name||!d.path){alert('ID, Name, Path required');return}
+    const r=await fetch('/api/projects',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(d)});
+    if(r.ok)location.reload();else{const j=await r.json();alert(j.error||'Error')}
+}
+async function deleteProject(id){if(!confirm('Delete '+id+'?'))return;const r=await fetch('/api/projects/'+id,{method:'DELETE'});if(r.ok)location.reload()}
+async function updateSetting(id,key,val){
+    const body={};body[key]=val;
+    await fetch('/api/projects/'+id+'/settings',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+}
+
+// === Event filtering ===
+async function filterEvents(){
+    const p=document.getElementById('f-proj').value,t=document.getElementById('f-type').value;
+    let u='/api/events?limit=100';if(p)u+='&project_id='+encodeURIComponent(p);if(t)u+='&event_type='+encodeURIComponent(t);
+    const evs=await apiJson(u);const tb=document.getElementById('ev-body');
+    if(!evs.length){tb.innerHTML='<tr><td colspan="4" style="text-align:center;color:#546e7a">No events</td></tr>';return}
+    tb.innerHTML=evs.map(e=>`<tr><td>${e.created_at}</td><td>${e.project_id}</td><td><span class="badge ${e.event_type}">${e.event_type}</span></td><td>${esc(e.message)}</td></tr>`).join('');
+}
+
+// === Task Queue ===
+async function loadQueue(){
+    const pf=document.getElementById('q-filt').value;
+    let u='/api/queue';if(pf)u+='/'+encodeURIComponent(pf);
+    const items=await apiJson(u);const c=document.getElementById('queue-list');
+    if(!items.length){c.innerHTML='<div style="text-align:center;color:#546e7a;padding:16px">No batches</div>';return}
+    c.innerHTML=items.map(i=>`<div class="q-item"><div class="q-item-header"><span class="q-item-title">${esc(i.batch_name)}</span><span class="badge ${i.status}">${i.status}</span></div>
+    <div class="q-item-meta">Project: <b>${esc(i.project_id)}</b> | Priority: <select class="priority-sel" onchange="chgPri(${i.id},this.value)" ${i.status!=='pending'?'disabled':''}>${[1,2,3,4,5].map(v=>`<option value="${v}" ${v===i.priority?'selected':''}>${v}</option>`).join('')}</select> | Created: ${i.created_at||'---'}${i.started_at?' | Start: '+i.started_at:''}${i.completed_at?' | End: '+i.completed_at:''}${i.description?'<br>'+esc(i.description):''}</div>
+    <div class="q-item-text">${esc(i.tasks_text)}</div>
+    <div class="q-item-actions">${i.status==='pending'||i.status==='running'?`<button class="btn btn-warn btn-sm" onclick="cancelQ(${i.id})">Cancel</button>`:''}${i.status==='pending'?`<button class="btn btn-danger btn-sm" onclick="delQ(${i.id})">Delete</button>`:''}</div></div>`).join('');
+}
+async function addBatch(){
+    const d={project_id:document.getElementById('q-proj').value,batch_name:document.getElementById('q-name').value.trim(),description:document.getElementById('q-desc').value.trim(),tasks_text:document.getElementById('q-text').value.trim(),priority:parseInt(document.getElementById('q-pri').value)||3};
+    if(!d.batch_name||!d.tasks_text){alert('Batch Name and Task Text required');return}
+    const r=await fetch('/api/queue',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(d)});
+    if(r.ok){document.getElementById('q-name').value='';document.getElementById('q-desc').value='';document.getElementById('q-text').value='';loadQueue()}
+    else{const j=await r.json();alert(j.error||'Error')}
+}
+async function chgPri(id,v){await fetch(`/api/queue/${id}/priority`,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({priority:parseInt(v)})});loadQueue()}
+async function cancelQ(id){if(!confirm('Cancel?'))return;await fetch(`/api/queue/${id}/cancel`,{method:'POST'});loadQueue()}
+async function delQ(id){if(!confirm('Delete?'))return;await fetch(`/api/queue/${id}`,{method:'DELETE'});loadQueue()}
+
+// === Task Decomposer ===
+let lastTasks=[];
+async function decompose(){
+    const btn=document.getElementById('d-btn');btn.disabled=true;btn.textContent='Decomposing...';
+    const out=document.getElementById('d-output');
+    const req=document.getElementById('d-req').value.trim();
+    if(!req){alert('Enter a request');btn.disabled=false;btn.textContent='Decompose Tasks';return}
+    const ctx=document.getElementById('d-ctx').value.trim();
+    out.innerHTML='<div class="chat-msg user">'+esc(req)+'</div><div style="color:#78909c;padding:8px">AI is analyzing...</div>';
+    try{
+        const r=await fetch('/api/decompose',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({request_text:req,project_context:ctx})});
+        const d=await r.json();
+        let html='<div class="chat-msg user">'+esc(req)+'</div>';
+        if(d.success&&d.tasks.length){
+            lastTasks=d.tasks;
+            html+='<div class="chat-msg ai">Decomposed into <b>'+d.tasks.length+'</b> child tasks:</div>';
+            d.tasks.forEach((t,i)=>{
+                html+=`<div class="child-task"><h4>${i+1}. ${esc(t.name)}</h4><div class="ct-field"><b>Type:</b> ${esc(t.task_type)}<br><b>Purpose:</b> ${esc(t.purpose)}<br><b>Scope:</b> ${esc(t.scope)}<br><b>Done when:</b> ${esc(t.completion_criteria)}<br><b>Test:</b> ${esc(t.test_method)}</div></div>`;
+            });
+            html+=`<div style="margin-top:8px"><button class="btn btn-success" onclick="enqueueDecomposed()">Add All to Queue</button></div>`;
+        }else{
+            html+='<div class="chat-msg ai" style="background:#b71c1c">Error: '+(d.error||'No tasks returned')+'</div>';
+            if(d.raw_response)html+='<div class="q-item-text" style="margin-top:6px">'+esc(d.raw_response)+'</div>';
         }
+        out.innerHTML=html;
+    }catch(e){out.innerHTML='<div class="chat-msg ai" style="background:#b71c1c">Error: '+esc(e.message)+'</div>'}
+    btn.disabled=false;btn.textContent='Decompose Tasks';
+}
+async function enqueueDecomposed(){
+    const proj=document.getElementById('d-proj').value;
+    const r=await fetch('/api/decompose/enqueue',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({project_id:proj,tasks:lastTasks,batch_name:'AI: '+lastTasks.map(t=>t.name).join(', ').substring(0,60)})});
+    if(r.ok){alert('Added to queue!');switchTab('queue',document.querySelectorAll('.tab-btn')[1])}
+    else{const d=await r.json();alert(d.error||'Error')}
+}
 
-        // API actions
-        async function apiAction(projectId, action) {
-            try {
-                const res = await fetch(`/api/project/${projectId}/${action}`, { method: 'POST' });
-                const data = await res.json();
-                location.reload();
-            } catch (e) {
-                alert('Error: ' + e.message);
-            }
-        }
+// === Charts ===
+let ch={};
+async function loadCharts(){
+    const days=document.getElementById('a-days').value;
+    try{
+        // Cost
+        const cd=await apiJson('/api/charts/daily_cost?days='+days);
+        if(ch.cost)ch.cost.destroy();
+        ch.cost=new Chart(document.getElementById('ch-cost'),{type:'bar',data:{labels:cd.map(d=>d.date),datasets:[{label:'Cost (USD)',data:cd.map(d=>d.total_cost),backgroundColor:'rgba(79,195,247,0.6)',borderColor:'#4fc3f7',borderWidth:1}]},options:{responsive:true,plugins:{legend:{labels:{color:'#e0e0e0'}}},scales:{x:{ticks:{color:'#78909c'},grid:{color:'#1e2d3a'}},y:{ticks:{color:'#78909c'},grid:{color:'#1e2d3a'},beginAtZero:true}}}});
+        // Quality
+        const qd=await apiJson('/api/charts/publishable_rate?days='+days);
+        if(ch.qual)ch.qual.destroy();
+        ch.qual=new Chart(document.getElementById('ch-quality'),{type:'line',data:{labels:qd.map(d=>d.date),datasets:[{label:'Publishable %',data:qd.map(d=>d.rate),borderColor:'#66bb6a',backgroundColor:'rgba(102,187,106,0.1)',fill:true,tension:.3}]},options:{responsive:true,plugins:{legend:{labels:{color:'#e0e0e0'}}},scales:{x:{ticks:{color:'#78909c'},grid:{color:'#1e2d3a'}},y:{ticks:{color:'#78909c'},grid:{color:'#1e2d3a'},min:0,max:100}}}});
+        // Events pie
+        const ed=await apiJson('/api/charts/event_breakdown');
+        if(ch.pie)ch.pie.destroy();
+        const colors=['#4fc3f7','#66bb6a','#ff9800','#f44336','#ab47bc','#26c6da','#ffca28','#8d6e63','#78909c','#ec407a','#5c6bc0','#26a69a'];
+        ch.pie=new Chart(document.getElementById('ch-events'),{type:'doughnut',data:{labels:ed.map(d=>d.event_type),datasets:[{data:ed.map(d=>d.count),backgroundColor:colors.slice(0,ed.length)}]},options:{responsive:true,plugins:{legend:{labels:{color:'#e0e0e0'},position:'bottom'}}}});
+        // Work hours
+        const hd=await apiJson('/api/charts/work_hours?days='+days);
+        if(ch.hrs)ch.hrs.destroy();
+        const projects={};hd.forEach(r=>{if(!projects[r.project_id])projects[r.project_id]=[];projects[r.project_id].push(r)});
+        const dates=[...new Set(hd.map(r=>r.date))].sort();
+        const dsArr=[];let ci=0;
+        for(const[pid,rows]of Object.entries(projects)){
+            const hmap={};rows.forEach(r=>hmap[r.date]=r.hours);
+            dsArr.push({label:pid,data:dates.map(d=>hmap[d]||0),backgroundColor:colors[ci%colors.length]+'99'});ci++}
+        ch.hrs=new Chart(document.getElementById('ch-hours'),{type:'bar',data:{labels:dates,datasets:dsArr},options:{responsive:true,plugins:{legend:{labels:{color:'#e0e0e0'}}},scales:{x:{stacked:true,ticks:{color:'#78909c'},grid:{color:'#1e2d3a'}},y:{stacked:true,ticks:{color:'#78909c'},grid:{color:'#1e2d3a'},beginAtZero:true,title:{display:true,text:'Hours',color:'#78909c'}}}}});
+    }catch(e){console.error('Chart error:',e)}
+}
 
-        // Event filtering
-        async function filterEvents() {
-            const project = document.getElementById('filter-project').value;
-            const type = document.getElementById('filter-type').value;
-            let url = '/api/events?limit=100';
-            if (project) url += '&project_id=' + encodeURIComponent(project);
-            if (type) url += '&event_type=' + encodeURIComponent(type);
-            try {
-                const res = await fetch(url);
-                const events = await res.json();
-                const tbody = document.getElementById('events-body');
-                if (events.length === 0) {
-                    tbody.innerHTML = '<tr><td colspan="4" style="text-align:center;color:#546e7a;">No matching events</td></tr>';
-                    return;
-                }
-                tbody.innerHTML = events.map(e => `
-                    <tr>
-                        <td>${e.created_at}</td>
-                        <td>${e.project_id}</td>
-                        <td><span class="event-type ${e.event_type}">${e.event_type}</span></td>
-                        <td>${e.message || ''}</td>
-                    </tr>
-                `).join('');
-            } catch (e) {
-                console.error('Filter error:', e);
-            }
-        }
+// === Notifications ===
+async function loadNotifications(){
+    const t=document.getElementById('n-type').value;
+    let u='/api/notifications?limit=50';if(t)u+='&event_type='+encodeURIComponent(t);
+    const ns=await apiJson(u);const tb=document.getElementById('n-body');
+    if(!ns.length){tb.innerHTML='<tr><td colspan="5" style="text-align:center;color:#546e7a">No notifications</td></tr>';return}
+    tb.innerHTML=ns.map(n=>`<tr><td>${n.created_at}</td><td>${n.project_id||'---'}</td><td><span class="badge ${n.event_type||''}">${n.event_type||'---'}</span></td><td>${esc(n.title)}</td><td>${esc(n.message)}</td></tr>`).join('');
+}
+async function testNotification(){
+    // Trigger a test notification via adding and reading it
+    await fetch('/api/queue',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({project_id:'oscar2',batch_name:'__test_notif__',tasks_text:'test',priority:5})});
+    // Cancel it immediately
+    const items=await apiJson('/api/queue/oscar2');
+    const t=items.find(i=>i.batch_name==='__test_notif__');
+    if(t)await fetch(`/api/queue/${t.id}`,{method:'DELETE'});
+    alert('Test notification logged. Check Notifications tab.');
+    loadNotifications();
+}
 
-        // Add / Delete projects
-        async function addProject() {
-            const data = {
-                id: document.getElementById('new-id').value.trim(),
-                name: document.getElementById('new-name').value.trim(),
-                path: document.getElementById('new-path').value.trim(),
-                auto_restart: document.getElementById('new-auto-restart').value === 'true',
-                max_cost_per_day_usd: parseFloat(document.getElementById('new-max-cost').value) || 10,
-            };
-            if (!data.id || !data.name || !data.path) {
-                alert('ID, Name, Path are required');
-                return;
-            }
-            try {
-                const res = await fetch('/api/projects', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(data),
-                });
-                const result = await res.json();
-                if (res.ok) {
-                    location.reload();
-                } else {
-                    alert('Error: ' + (result.error || 'Unknown'));
-                }
-            } catch (e) {
-                alert('Error: ' + e.message);
-            }
-        }
-
-        async function deleteProject(id) {
-            if (!confirm('Delete project ' + id + '?')) return;
-            try {
-                const res = await fetch('/api/projects/' + id, { method: 'DELETE' });
-                if (res.ok) location.reload();
-                else alert('Error deleting project');
-            } catch (e) {
-                alert('Error: ' + e.message);
-            }
-        }
-
-        // Charts
-        let charts = {};
-        async function loadCharts() {
-            try {
-                // Daily cost
-                const costRes = await fetch('/api/charts/daily_cost?days=30');
-                const costData = await costRes.json();
-                if (charts.cost) charts.cost.destroy();
-                const costCtx = document.getElementById('costChart').getContext('2d');
-                charts.cost = new Chart(costCtx, {
-                    type: 'bar',
-                    data: {
-                        labels: costData.map(d => d.date),
-                        datasets: [{
-                            label: 'Cost (USD)',
-                            data: costData.map(d => d.total_cost),
-                            backgroundColor: 'rgba(79, 195, 247, 0.6)',
-                            borderColor: '#4fc3f7',
-                            borderWidth: 1
-                        }]
-                    },
-                    options: {
-                        responsive: true,
-                        plugins: { legend: { labels: { color: '#e0e0e0' } } },
-                        scales: {
-                            x: { ticks: { color: '#78909c' }, grid: { color: '#1e2d3a' } },
-                            y: { ticks: { color: '#78909c' }, grid: { color: '#1e2d3a' }, beginAtZero: true }
-                        }
-                    }
-                });
-
-                // Publishable rate
-                const qualRes = await fetch('/api/charts/publishable_rate?days=30');
-                const qualData = await qualRes.json();
-                if (charts.quality) charts.quality.destroy();
-                const qualCtx = document.getElementById('qualityChart').getContext('2d');
-                charts.quality = new Chart(qualCtx, {
-                    type: 'line',
-                    data: {
-                        labels: qualData.map(d => d.date),
-                        datasets: [{
-                            label: 'Publishable Rate (%)',
-                            data: qualData.map(d => d.rate),
-                            borderColor: '#66bb6a',
-                            backgroundColor: 'rgba(102,187,106,0.1)',
-                            fill: true,
-                            tension: 0.3
-                        }]
-                    },
-                    options: {
-                        responsive: true,
-                        plugins: { legend: { labels: { color: '#e0e0e0' } } },
-                        scales: {
-                            x: { ticks: { color: '#78909c' }, grid: { color: '#1e2d3a' } },
-                            y: { ticks: { color: '#78909c' }, grid: { color: '#1e2d3a' }, min: 0, max: 100 }
-                        }
-                    }
-                });
-
-                // Event breakdown pie
-                const pieRes = await fetch('/api/charts/event_breakdown');
-                const pieData = await pieRes.json();
-                if (charts.pie) charts.pie.destroy();
-                const pieCtx = document.getElementById('eventPieChart').getContext('2d');
-                const pieColors = ['#4fc3f7','#66bb6a','#ff9800','#f44336','#ab47bc','#26c6da','#ffca28','#8d6e63','#78909c','#ec407a'];
-                charts.pie = new Chart(pieCtx, {
-                    type: 'doughnut',
-                    data: {
-                        labels: pieData.map(d => d.event_type),
-                        datasets: [{
-                            data: pieData.map(d => d.count),
-                            backgroundColor: pieColors.slice(0, pieData.length),
-                        }]
-                    },
-                    options: {
-                        responsive: true,
-                        plugins: { legend: { labels: { color: '#e0e0e0' }, position: 'bottom' } }
-                    }
-                });
-            } catch (e) {
-                console.error('Chart load error:', e);
-            }
-        }
-
-        // --- Task Queue functions ---
-        async function loadQueue() {
-            const projectFilter = document.getElementById('q-filter-project').value;
-            let url = '/api/queue';
-            if (projectFilter) url += '/' + encodeURIComponent(projectFilter);
-            try {
-                const res = await fetch(url);
-                const items = await res.json();
-                const container = document.getElementById('queue-list');
-                if (items.length === 0) {
-                    container.innerHTML = '<div style="text-align:center;color:#546e7a;padding:20px;">No batches in queue</div>';
-                    return;
-                }
-                container.innerHTML = items.map(item => `
-                    <div class="queue-item">
-                        <div class="queue-item-header">
-                            <span class="queue-item-title">${escHtml(item.batch_name)}</span>
-                            <span class="queue-badge ${item.status}">${item.status}</span>
-                        </div>
-                        <div class="queue-item-meta">
-                            Project: <strong>${escHtml(item.project_id)}</strong> |
-                            Priority: <select class="priority-select" onchange="changePriority(${item.id}, this.value)" ${item.status !== 'pending' ? 'disabled' : ''}>
-                                ${[1,2,3,4,5].map(v => `<option value="${v}" ${v === item.priority ? 'selected' : ''}>${v}</option>`).join('')}
-                            </select> |
-                            Created: ${item.created_at || '---'}
-                            ${item.started_at ? ' | Started: ' + item.started_at : ''}
-                            ${item.completed_at ? ' | Ended: ' + item.completed_at : ''}
-                            ${item.description ? '<br>Description: ' + escHtml(item.description) : ''}
-                        </div>
-                        <div class="queue-item-text">${escHtml(item.tasks_text)}</div>
-                        <div class="queue-item-actions">
-                            ${item.status === 'pending' || item.status === 'running' ?
-                                `<button class="btn btn-warn btn-sm" onclick="cancelBatch(${item.id})">Cancel</button>` : ''}
-                            ${item.status === 'pending' ?
-                                `<button class="btn btn-danger btn-sm" onclick="deleteBatch(${item.id})">Delete</button>` : ''}
-                        </div>
-                    </div>
-                `).join('');
-            } catch (e) {
-                console.error('Queue load error:', e);
-            }
-        }
-
-        function escHtml(s) {
-            if (!s) return '';
-            const d = document.createElement('div');
-            d.textContent = s;
-            return d.innerHTML;
-        }
-
-        async function addBatch() {
-            const data = {
-                project_id: document.getElementById('q-project').value,
-                batch_name: document.getElementById('q-batch-name').value.trim(),
-                description: document.getElementById('q-description').value.trim(),
-                tasks_text: document.getElementById('q-tasks-text').value.trim(),
-                priority: parseInt(document.getElementById('q-priority').value) || 3,
-            };
-            if (!data.batch_name || !data.tasks_text) {
-                alert('Batch Name and Task Text are required');
-                return;
-            }
-            try {
-                const res = await fetch('/api/queue', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(data),
-                });
-                const result = await res.json();
-                if (res.ok) {
-                    document.getElementById('q-batch-name').value = '';
-                    document.getElementById('q-description').value = '';
-                    document.getElementById('q-tasks-text').value = '';
-                    loadQueue();
-                } else {
-                    alert('Error: ' + (result.error || 'Unknown'));
-                }
-            } catch (e) {
-                alert('Error: ' + e.message);
-            }
-        }
-
-        async function changePriority(batchId, newPriority) {
-            try {
-                await fetch(`/api/queue/${batchId}/priority`, {
-                    method: 'PUT',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ priority: parseInt(newPriority) }),
-                });
-                loadQueue();
-            } catch (e) {
-                alert('Error: ' + e.message);
-            }
-        }
-
-        async function cancelBatch(batchId) {
-            if (!confirm('Cancel this batch?')) return;
-            try {
-                const res = await fetch(`/api/queue/${batchId}/cancel`, { method: 'POST' });
-                if (res.ok) loadQueue();
-                else { const d = await res.json(); alert('Error: ' + d.error); }
-            } catch (e) {
-                alert('Error: ' + e.message);
-            }
-        }
-
-        async function deleteBatch(batchId) {
-            if (!confirm('Delete this batch permanently?')) return;
-            try {
-                const res = await fetch(`/api/queue/${batchId}`, { method: 'DELETE' });
-                if (res.ok) loadQueue();
-                else alert('Error deleting batch');
-            } catch (e) {
-                alert('Error: ' + e.message);
-            }
-        }
-
-        // Auto-refresh countdown
-        let countdown = 10;
-        const countdownEl = document.getElementById('countdown');
-        setInterval(() => {
-            countdown--;
-            if (countdownEl) countdownEl.textContent = countdown;
-            if (countdown <= 0) location.reload();
-        }, 1000);
-    </script>
+// === Auto-refresh ===
+let cd=10;setInterval(()=>{cd--;const el=document.getElementById('cd');if(el)el.textContent=cd;if(cd<=0)location.reload()},1000);
+</script>
 </body>
 </html>
