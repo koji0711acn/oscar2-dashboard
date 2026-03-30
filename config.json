@@ -22,6 +22,7 @@
     "check_interval_seconds": 60,
     "base_path": "C:\\Users\\koji3\\OneDrive\\デスクトップ",
     "dashboard_token": null,
+    "dashboard_password": null,
     "localhost_no_auth": true,
     "remote_dashboard_url": "https://believable-cooperation-production.up.railway.app"
   }

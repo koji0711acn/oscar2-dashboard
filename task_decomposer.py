@@ -1,4 +1,4 @@
-"""Task Decomposer: Uses Anthropic API (Claude) to break down vague requests into structured child tasks."""
+"""Task Decomposer: Uses OpenAI API (gpt-4o) to break down vague requests into structured child tasks."""
 
 import json
 import os
@@ -39,16 +39,15 @@ Example output format:
 
 
 def _get_api_key():
-    """Get Anthropic API key from environment or config."""
-    key = os.environ.get("ANTHROPIC_API_KEY")
+    """Get OpenAI API key from environment or config."""
+    key = os.environ.get("OPENAI_API_KEY")
     if key:
         return key
-    # Try config.json
     config_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "config.json")
     try:
         with open(config_path, "r", encoding="utf-8") as f:
             config = json.load(f)
-        key = config.get("oscar", {}).get("anthropic_api_key")
+        key = config.get("oscar", {}).get("openai_api_key")
         if key:
             return key
     except Exception:
@@ -57,7 +56,7 @@ def _get_api_key():
 
 
 def decompose(request_text, project_context=""):
-    """Decompose a natural language request into structured child tasks.
+    """Decompose a natural language request into structured child tasks using OpenAI gpt-4o.
 
     Args:
         request_text: The user's request in natural language
@@ -76,30 +75,32 @@ def decompose(request_text, project_context=""):
             "success": False,
             "tasks": [],
             "raw_response": "",
-            "error": "Anthropic API key not configured. Set ANTHROPIC_API_KEY environment variable or add anthropic_api_key to config.json oscar section.",
+            "error": "OpenAI API key not configured. Set OPENAI_API_KEY environment variable.",
         }
 
     user_message = request_text
     if project_context:
         user_message = f"Project context: {project_context}\n\nRequest: {request_text}"
 
+    raw_text = ""
     try:
-        import anthropic
-        client = anthropic.Anthropic(api_key=api_key)
+        from openai import OpenAI
+        client = OpenAI(api_key=api_key)
 
-        response = client.messages.create(
-            model="claude-sonnet-4-20250514",
+        response = client.chat.completions.create(
+            model="gpt-4o",
             max_tokens=4096,
-            system=SYSTEM_PROMPT,
-            messages=[{"role": "user", "content": user_message}],
+            messages=[
+                {"role": "system", "content": SYSTEM_PROMPT},
+                {"role": "user", "content": user_message},
+            ],
         )
 
-        raw_text = response.content[0].text.strip()
+        raw_text = response.choices[0].message.content.strip()
 
         # Parse JSON from response (handle markdown fences if present)
         json_text = raw_text
         if "```" in json_text:
-            # Extract JSON from markdown code block
             lines = json_text.split("\n")
             in_block = False
             block_lines = []
@@ -138,7 +139,7 @@ def decompose(request_text, project_context=""):
         return {
             "success": False,
             "tasks": [],
-            "raw_response": raw_text if 'raw_text' in dir() else "",
+            "raw_response": raw_text,
             "error": f"AI response was not valid JSON: {e}",
         }
     except Exception as e:
@@ -146,7 +147,7 @@ def decompose(request_text, project_context=""):
         return {
             "success": False,
             "tasks": [],
-            "raw_response": "",
+            "raw_response": raw_text,
             "error": str(e),
         }
 

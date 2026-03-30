@@ -25,6 +25,8 @@ import notifier
 import recovery_orchestrator
 import task_backlog
 import quality_gate
+import output_verifier
+import fix_templates
 
 logging.basicConfig(
     level=logging.INFO,
@@ -139,13 +141,11 @@ def monitor_project(project_config, oscar_config):
     if status == "RUNNING" and action == "CONTINUE":
         recovery_orchestrator.reset_retries(project_id)
 
-    # Run QA check on latest output
+    # Run output verification on latest output
     try:
-        qa_result = quality_gate.run_qa_check_on_latest(project_config, oscar_config)
-        if qa_result and not qa_result['passed']:
-            logger.warning(f"[{project_id}] QA FAIL: {qa_result['summary']}")
+        _run_output_verification(project_config, oscar_config)
     except Exception as e:
-        logger.debug(f"[{project_id}] QA check skipped: {e}")
+        logger.debug(f"[{project_id}] Output verification skipped: {e}")
 
     # Send heartbeat to remote dashboard
     try:
@@ -153,6 +153,72 @@ def monitor_project(project_config, oscar_config):
         _send_heartbeat(config, project_config, status, pid)
     except Exception:
         pass
+
+
+# Track verify retry counts per project
+_verify_retries = {}
+MAX_VERIFY_RETRIES = 3
+
+
+def _run_output_verification(project_config, oscar_config):
+    """Verify latest output and optionally trigger fix instructions."""
+    project_id = project_config["id"]
+    project_path = os.path.join(oscar_config.get("base_path", ""), project_config["path"])
+
+    # Extract keyword from running batch name or project name
+    keyword = ""
+    running = task_backlog.get_running_batch(project_id)
+    if running:
+        keyword = running["batch_name"]
+
+    result = output_verifier.verify_project_output(project_path, keyword)
+
+    if not result["files_checked"]:
+        return  # No files to check
+
+    if result["pass"]:
+        # Reset retries on pass
+        _verify_retries.pop(project_id, None)
+        models.record_quality(project_id, "publishable",
+                              f"Verified: {', '.join(result['files_checked'])}")
+        models.log_event(project_id, "QA_PASS",
+                         f"Output verified OK: {', '.join(result['files_checked'])}")
+        logger.info(f"[{project_id}] Output verification PASS")
+    else:
+        # Collect all failures
+        all_failures = []
+        all_warnings = []
+        if result.get("article_result"):
+            all_failures.extend(result["article_result"].get("failures", []))
+            all_warnings.extend(result["article_result"].get("warnings", []))
+        if result.get("packet_result"):
+            all_failures.extend(result["packet_result"].get("failures", []))
+
+        detail = "; ".join(f["type"] + ": " + f.get("detail", "") for f in all_failures[:3])
+        models.record_quality(project_id, "needs_revision", detail[:200])
+        models.log_event(project_id, "QA_FAIL", detail[:200])
+        logger.warning(f"[{project_id}] Output verification FAIL: {detail[:100]}")
+
+        # Check retry count
+        retries = _verify_retries.get(project_id, 0)
+        if retries >= MAX_VERIFY_RETRIES:
+            # Escalate to human
+            _verify_retries[project_id] = 0
+            models.log_event(project_id, "ESCALATE",
+                             f"Output failed verification {MAX_VERIFY_RETRIES} times")
+            notifier.notify(
+                "OSCAR2 ESCALATE",
+                f"{project_config['name']}: Output failed QA {MAX_VERIFY_RETRIES} times",
+                event_type="ESCALATE",
+                project_id=project_id,
+            )
+        else:
+            # Generate fix instruction and log it (actual CLI invocation depends on context)
+            fix_text = fix_templates.generate_fix_instruction(all_failures, all_warnings)
+            _verify_retries[project_id] = retries + 1
+            models.log_event(project_id, "FIX_INSTRUCTION",
+                             f"Retry {retries + 1}/{MAX_VERIFY_RETRIES}: {fix_text[:200]}")
+            logger.info(f"[{project_id}] Fix instruction generated (retry {retries + 1})")
 
 
 def run():

@@ -97,7 +97,10 @@
     </style>
 </head>
 <body>
-<h1>OSCAR2 Dashboard</h1>
+<div style="display:flex;justify-content:center;align-items:center;gap:16px;margin-bottom:2px">
+<h1 style="margin:0">OSCAR2 Dashboard</h1>
+<a href="/logout" style="font-size:0.75em;color:#78909c;text-decoration:none" title="Logout">Logout</a>
+</div>
 <p class="subtitle">Agent Teams Monitoring & Recovery System</p>
 
 <div class="tabs">
@@ -147,6 +150,15 @@
                 <span class="lbl" style="margin-left:8px">Done:</span><span>{{ p.completed_batches }}</span>
             </div>
         </div>
+        {% if p.qa_verdict %}
+        <div class="card-section"><div class="card-section-title">QA Result</div>
+            <div class="card-info" style="margin:0">
+                <span class="badge {{ 'RUNNING' if p.qa_verdict == 'publishable' else 'DEAD' }}">{{ p.qa_verdict }}</span>
+                <span style="margin-left:6px;font-size:0.75em;color:#78909c">{{ p.qa_time }}</span>
+                {% if p.qa_detail %}<br><span style="font-size:0.72em;color:#90a4ae">{{ p.qa_detail[:80] }}</span>{% endif %}
+            </div>
+        </div>
+        {% endif %}
         <div class="card-actions">
             <button class="btn btn-start btn-sm" onclick="apiPost('/api/project/{{p.id}}/start')">Start</button>
             <button class="btn btn-stop btn-sm" onclick="apiPost('/api/project/{{p.id}}/stop')">Stop</button>
@@ -295,6 +307,10 @@
 <!-- ============ ARTIFACTS TAB ============ -->
 <div id="tab-artifacts" class="tab-content">
     <h2>Artifacts Browser</h2>
+    <details style="margin-bottom:12px"><summary style="color:#4fc3f7;cursor:pointer;font-size:0.88em;font-weight:600">QA Reports</summary>
+    <div id="qa-reports-list" style="margin-top:6px"></div>
+    <pre id="qa-report-content" style="display:none;background:#0f1923;padding:10px;border-radius:6px;font-size:0.78em;max-height:400px;overflow-y:auto;white-space:pre-wrap;margin-top:6px"></pre>
+    </details>
     <div class="filters">
         <label>Project:</label>
         <select id="art-proj" onchange="loadArtifacts()">
@@ -481,8 +497,27 @@ async function testNotification(){
     loadNotifications();
 }
 
+// === QA Reports ===
+async function loadQAReports(){
+    try{
+        const reports=await apiJson('/api/qa/reports');
+        const el=document.getElementById('qa-reports-list');
+        if(!reports||!reports.length){el.innerHTML='<div style="color:#546e7a;font-size:0.82em">No QA reports</div>';return}
+        el.innerHTML=reports.map(r=>`<div style="display:flex;gap:8px;align-items:center;margin-bottom:4px"><span style="font-size:0.78em;color:#b0bec5">${esc(r.filename)}</span><button class="btn btn-sm btn-primary" onclick="viewQAReport('${esc(r.filename)}')">View</button></div>`).join('');
+    }catch(e){}
+}
+async function viewQAReport(fname){
+    try{
+        const d=await apiJson('/api/qa/report/'+encodeURIComponent(fname));
+        const el=document.getElementById('qa-report-content');
+        el.style.display='block';
+        el.textContent=d.content||'No content';
+    }catch(e){}
+}
+
 // === Artifacts ===
 async function loadArtifacts(){
+    loadQAReports();
     const proj=document.getElementById('art-proj').value;
     const list=document.getElementById('art-list');
     try{

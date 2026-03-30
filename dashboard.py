@@ -5,7 +5,7 @@ import os
 import subprocess
 import functools
 from datetime import datetime
-from flask import Flask, render_template, jsonify, request, send_file
+from flask import Flask, render_template, jsonify, request, send_file, session, redirect, url_for
 
 # Load .env (try local .env first, then blog_automation)
 try:
@@ -25,6 +25,8 @@ import task_backlog
 import task_decomposer
 
 app = Flask(__name__)
+app.secret_key = os.environ.get("SECRET_KEY", "oscar2-dev-secret-change-me-in-prod")
+app.permanent_session_lifetime = __import__("datetime").timedelta(hours=24)
 
 _BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 CONFIG_PATH = os.path.join(_BASE_DIR, "config.json")
@@ -51,6 +53,18 @@ _start_time = datetime.now()
 
 # --- Authentication middleware ---
 
+def _get_dashboard_password():
+    """Get dashboard password from env or config."""
+    pw = os.environ.get("DASHBOARD_PASSWORD")
+    if pw:
+        return pw
+    try:
+        config = load_config()
+        return config.get("oscar", {}).get("dashboard_password")
+    except Exception:
+        return None
+
+
 def _get_dashboard_token():
     """Get dashboard token from env or config."""
     token = os.environ.get("DASHBOARD_TOKEN")
@@ -69,29 +83,41 @@ def _is_localhost():
     return remote in ("127.0.0.1", "::1", "localhost")
 
 
-def require_auth(f):
-    """Decorator to require token authentication on API endpoints."""
-    @functools.wraps(f)
-    def decorated(*args, **kwargs):
-        token = _get_dashboard_token()
-        if not token:
-            return f(*args, **kwargs)  # No token configured = no auth required
+def _is_authenticated():
+    """Check if current request is authenticated via session, token, or localhost."""
+    # Session auth (browser login)
+    if session.get("logged_in"):
+        return True
 
-        # Check config for localhost bypass
-        try:
-            config = load_config()
-            if config.get("oscar", {}).get("localhost_no_auth", True) and _is_localhost():
-                return f(*args, **kwargs)
-        except Exception:
-            pass
+    # Localhost bypass
+    try:
+        config = load_config()
+        if config.get("oscar", {}).get("localhost_no_auth", True) and _is_localhost():
+            return True
+    except Exception:
+        pass
 
-        # Check Authorization header or ?token= query param
+    # Token auth (API)
+    token = _get_dashboard_token()
+    if token:
         auth_header = request.headers.get("Authorization", "")
         query_token = request.args.get("token", "")
-
         if auth_header == f"Bearer {token}" or query_token == token:
-            return f(*args, **kwargs)
+            return True
 
+    # No password/token configured = open access
+    if not _get_dashboard_password() and not _get_dashboard_token():
+        return True
+
+    return False
+
+
+def require_auth(f):
+    """Decorator to require authentication on API endpoints."""
+    @functools.wraps(f)
+    def decorated(*args, **kwargs):
+        if _is_authenticated():
+            return f(*args, **kwargs)
         return jsonify({"error": "Unauthorized"}), 401
     return decorated
 
@@ -244,11 +270,46 @@ def _build_project_list():
     return projects, config
 
 
+@app.route("/login", methods=["GET", "POST"])
+def login():
+    """Login page."""
+    if request.method == "POST":
+        password = request.form.get("password", "")
+        expected = _get_dashboard_password()
+        if expected and password == expected:
+            session.permanent = True
+            session["logged_in"] = True
+            return redirect(url_for("index"))
+        return render_template("login.html", error="Incorrect password")
+    return render_template("login.html", error=None)
+
+
+@app.route("/logout")
+def logout():
+    session.clear()
+    return redirect(url_for("login"))
+
+
 @app.route("/")
 def index():
+    # If password is set and user not authenticated, redirect to login
+    if _get_dashboard_password() and not _is_authenticated():
+        return redirect(url_for("login"))
+
     projects, config = _build_project_list()
     events = models.get_recent_events(50)
     notifications = models.get_recent_notifications(20)
+
+    # Add latest QA result to each project
+    for p in projects:
+        qa_records = models.get_recent_quality(p["id"], limit=1)
+        if qa_records:
+            p["qa_verdict"] = qa_records[0]["verdict"]
+            p["qa_detail"] = qa_records[0]["detail"]
+            p["qa_time"] = qa_records[0]["created_at"]
+        else:
+            p["qa_verdict"] = None
+
     return render_template("dashboard.html", projects=projects, events=events,
                            notifications=notifications)
 
