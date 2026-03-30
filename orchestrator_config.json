@@ -1,0 +1,11 @@
+{
+  "advisor_chat_url": "ここに参謀チャットのURLを設定（例: https://claude.ai/chat/xxxxxxxx）",
+  "claude_code_url": "https://claude.ai/code",
+  "chrome_profile_path": "C:\\Users\\koji3\\AppData\\Local\\Google\\Chrome\\User Data",
+  "stall_timeout_minutes": 30,
+  "cycle_timeout_minutes": 60,
+  "retry_max": 3,
+  "retry_delay_seconds": 30,
+  "log_dir": "logs",
+  "log_max_days": 30
+}

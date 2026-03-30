@@ -3,9 +3,6 @@ __pycache__/
 *.pyo
 oscar2.db
 .env
-*.bak
-*.bak2
-*.bak3
-*.bak4
-*.bak5
-*.bak6
+*.bak*
+logs/
+orchestrator.log

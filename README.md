@@ -128,11 +128,58 @@ railway up
 | `recovery_orchestrator.py` | 復旧判定エンジン (CONTINUE/RESTART/RETRY/ESCALATE/PAUSE/ABORT) |
 | `quality_gate.py` | Mechanical Judge + Strategic Judge |
 | `task_backlog.py` | SQLite ベースのタスクキュー管理 |
-| `task_decomposer.py` | Anthropic API でタスク分解 |
+| `task_decomposer.py` | OpenAI API (gpt-4o) でタスク分解 |
+| `output_verifier.py` | 成果物の自動品質検証 (SNS関連性、重複、HTML) |
+| `fix_templates.py` | 品質問題ごとの修正指示テンプレート |
+| `qa_checker.py` | 記事/LP の品質チェック CLI ツール |
+| `orchestrator.py` | Playwright: 参謀チャット ↔ Claude Code 自動中継 |
 | `notifier.py` | 通知システム (Desktop/Slack/LINE 基底クラス設計) |
 | `dashboard.py` | Flask Web ダッシュボード (port 5001) + 全API |
 | `models.py` | SQLite 永続化 (project_state, event_log, cost_record, etc.) |
 | `config.json` | プロジェクト定義と OSCAR 設定 |
+
+## Orchestrator (参謀 ↔ Claude Code 自動中継)
+
+Playwright を使って claude.ai の参謀チャットと Claude Code GUI の間でメッセージを自動中継する常駐プログラム。
+
+### セットアップ
+
+```bash
+pip install -r requirements.txt
+python -m playwright install chromium
+```
+
+### 設定
+
+`orchestrator_config.json` を編集:
+
+```json
+{
+  "advisor_chat_url": "https://claude.ai/chat/YOUR_ADVISOR_CHAT_ID",
+  "claude_code_url": "https://claude.ai/code",
+  "chrome_profile_path": "C:\\Users\\koji3\\AppData\\Local\\Google\\Chrome\\User Data"
+}
+```
+
+### 起動
+
+```bash
+# 通常起動
+python orchestrator.py
+
+# テストモード（ブラウザ動作確認）
+python orchestrator.py --test
+
+# バッチファイルで起動（Windows）
+start_orchestrator.bat
+```
+
+### 注意事項
+
+- Chrome が起動中の場合はプロファイル競合が発生します。既存の Chrome を閉じてから起動してください
+- claude.ai にログイン済みの Chrome プロファイルを使用します
+- Ctrl+C で停止
+- ログは `logs/orchestrator_YYYYMMDD.log` に出力されます
 
 ## キーコマンド
 
@@ -143,6 +190,10 @@ python oscar_core.py
 # ダッシュボード起動
 python dashboard.py
 
+# Orchestrator起動
+python orchestrator.py
+
 # 依存関係インストール
 pip install -r requirements.txt
+python -m playwright install chromium
 ```
