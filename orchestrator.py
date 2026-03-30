@@ -1,21 +1,20 @@
 #!/usr/bin/env python3
-"""Orchestrator: Automated relay between claude.ai advisor chat and Claude Code GUI.
+"""Orchestrator: Automated relay between claude.ai advisor chat and Claude Code CLI.
 
-Uses Playwright to control Chrome browser with two tabs:
-- Tab 1: Advisor chat (claude.ai/chat/xxxxx) — strategic analysis
-- Tab 2: Claude Code GUI (claude.ai/code) — implementation
+- Advisor chat (claude.ai/chat): controlled via Playwright (browser)
+- Claude Code: controlled via subprocess (CLI stdin/stdout)
 
 The orchestrator relays messages between them in a continuous loop:
-1. Wait for Claude Code to finish
-2. Copy output to advisor chat
-3. Wait for advisor response
-4. Copy advisor instructions to Claude Code
+1. Wait for Claude Code CLI to finish (stdout goes silent)
+2. Copy output to advisor chat (Playwright)
+3. Wait for advisor response (Playwright)
+4. Copy advisor instructions to Claude Code CLI (stdin)
 5. Repeat
 
 Usage:
     python orchestrator.py
     python orchestrator.py --config orchestrator_config.json
-    python orchestrator.py --test  (test mode: opens browser, verifies elements)
+    python orchestrator.py --test
 """
 
 import sys
@@ -25,28 +24,31 @@ import json
 import logging
 import traceback
 import argparse
-from datetime import datetime, timedelta
+import subprocess
+import threading
+import queue
+from datetime import datetime
 from pathlib import Path
 
 from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeout
 
 
 class Orchestrator:
-    """Automated message relay between claude.ai advisor and Claude Code."""
+    """Automated message relay between claude.ai advisor and Claude Code CLI."""
 
     def __init__(self, config_path="orchestrator_config.json"):
         self.config = self._load_config(config_path)
         self.playwright = None
-        self.browser = None
         self.context = None
         self.advisor_page = None
-        self.claude_code_page = None
-        self._last_advisor_msg_count = 0
-        self._last_code_msg_count = 0
+        # Claude Code subprocess
+        self.claude_process = None
+        self._stdout_queue = queue.Queue()
+        self._stdout_thread = None
         self._last_activity = datetime.now()
         self._cycle_count = 0
 
-        # Setup logging
+        # Logging
         log_dir = Path(self.config.get("log_dir", "logs"))
         log_dir.mkdir(exist_ok=True)
         today = datetime.now().strftime("%Y%m%d")
@@ -64,54 +66,36 @@ class Orchestrator:
         self.logger = logging.getLogger("orchestrator")
 
     def _load_config(self, config_path):
-        """Load config from JSON file."""
         path = Path(config_path)
         if not path.exists():
-            # Look in script directory
             path = Path(__file__).parent / config_path
         if path.exists():
             with open(path, "r", encoding="utf-8") as f:
                 return json.load(f)
-        self.log(f"Config not found at {config_path}, using defaults", "warning")
         return {}
 
     def log(self, message, level="info"):
-        """Log to file and console."""
         getattr(self.logger, level, self.logger.info)(message)
 
     # ================================================================
-    # Browser Setup
+    # Browser Setup (Advisor chat only)
     # ================================================================
 
     def _get_profile_dir(self):
-        """Get the dedicated Orchestrator Chrome profile directory.
-
-        Uses chrome_profile_copy_dir from config. This is a standalone
-        Playwright profile — separate from the user's main Chrome.
-        On first launch, the user logs in manually. After that, the
-        session is persisted in this directory automatically.
-        """
         default_dir = r"C:\Users\koji3\AppData\Local\Google\Chrome\OrchestratorProfile"
         return Path(self.config.get("chrome_profile_copy_dir", default_dir))
 
     def setup_browser(self):
-        """Launch Chromium with a dedicated persistent profile and open two tabs.
-
-        Uses a separate profile directory (chrome_profile_copy_dir) so that
-        the user's normal Chrome can stay open without lock conflicts.
-        First launch requires manual login to claude.ai; subsequent launches
-        reuse the saved session automatically.
-        """
+        """Launch Chromium for advisor chat only (Claude Code uses subprocess)."""
         profile_dir = self._get_profile_dir()
         profile_dir.mkdir(parents=True, exist_ok=True)
         first_time = not (profile_dir / "Default").exists()
 
-        self.log(f"Using Orchestrator profile: {profile_dir}")
+        self.log(f"Browser profile: {profile_dir}")
         if first_time:
-            self.log("First launch — you will need to log in to claude.ai manually.")
+            self.log("First launch — manual login to claude.ai required.")
 
         self.playwright = sync_playwright().start()
-
         self.context = self.playwright.chromium.launch_persistent_context(
             user_data_dir=str(profile_dir),
             headless=False,
@@ -124,20 +108,17 @@ class Orchestrator:
             slow_mo=100,
         )
 
-        # On first launch, navigate to claude.ai and wait for manual login
         if first_time:
             page = self.context.pages[0] if self.context.pages else self.context.new_page()
-            self.log("Opening claude.ai for initial login...")
             page.goto("https://claude.ai", wait_until="domcontentloaded", timeout=60000)
             self.log(">>> Please log in to claude.ai in the browser window <<<")
             self.log(">>> After logging in, press Enter here to continue <<<")
             input()
-            self.log("Login confirmed. Session will be saved for future launches.")
+            self.log("Login saved.")
 
-        # Open advisor chat tab
+        # Open advisor chat
         advisor_url = self.config.get("advisor_chat_url", "")
         if not advisor_url:
-            self.log("advisor_chat_url not set in config! Set it before running.", "error")
             raise ValueError("advisor_chat_url is required in orchestrator_config.json")
 
         if self.context.pages:
@@ -145,39 +126,142 @@ class Orchestrator:
         else:
             self.advisor_page = self.context.new_page()
 
-        self.log(f"Opening advisor chat: {advisor_url}")
+        self.log(f"Opening advisor: {advisor_url}")
         self.advisor_page.goto(advisor_url, wait_until="domcontentloaded", timeout=60000)
         time.sleep(3)
-
-        # Open Claude Code tab
-        code_url = self.config.get("claude_code_url", "https://claude.ai/code")
-        self.claude_code_page = self.context.new_page()
-        self.log(f"Opening Claude Code: {code_url}")
-        self.claude_code_page.goto(code_url, wait_until="domcontentloaded", timeout=60000)
-        time.sleep(3)
-
-        self.log("Browser setup complete — 2 tabs open")
+        self.log("Advisor chat ready.")
 
     # ================================================================
-    # DOM Interaction Helpers
+    # Claude Code CLI (subprocess)
+    # ================================================================
+
+    def setup_claude_code(self):
+        """Start Claude Code CLI as a subprocess."""
+        project_dir = self.config.get(
+            "claude_code_project_dir",
+            r"C:\Users\koji3\OneDrive\デスクトップ\blog_automation"
+        )
+        self.log(f"Starting Claude Code CLI in: {project_dir}")
+
+        # Find claude command
+        import shutil
+        claude_bin = shutil.which("claude")
+        if not claude_bin:
+            appdata = os.environ.get("APPDATA", "")
+            candidate = os.path.join(appdata, "npm", "claude.cmd")
+            if os.path.isfile(candidate):
+                claude_bin = candidate
+        if not claude_bin:
+            raise FileNotFoundError("claude CLI not found in PATH or npm global")
+
+        self.log(f"Claude binary: {claude_bin}")
+
+        use_shell = sys.platform == "win32" and claude_bin.endswith(".cmd")
+
+        self.claude_process = subprocess.Popen(
+            [claude_bin, "--dangerously-skip-permissions"],
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,  # merge stderr into stdout
+            cwd=project_dir,
+            encoding="utf-8",
+            errors="replace",
+            bufsize=1,  # line buffered
+            shell=use_shell,
+        )
+
+        # Start background thread to read stdout without blocking
+        self._stdout_thread = threading.Thread(
+            target=self._read_stdout_loop, daemon=True
+        )
+        self._stdout_thread.start()
+        self.log(f"Claude Code CLI started (PID={self.claude_process.pid})")
+        time.sleep(3)  # let it initialize
+
+    def _read_stdout_loop(self):
+        """Background thread: read lines from Claude Code stdout into a queue."""
+        try:
+            for line in self.claude_process.stdout:
+                self._stdout_queue.put(line)
+        except (ValueError, OSError):
+            pass  # process closed
+
+    def send_to_claude_code(self, text):
+        """Send text to Claude Code CLI via stdin."""
+        if not self.claude_process or self.claude_process.poll() is not None:
+            self.log("Claude Code process is not running!", "error")
+            return False
+        try:
+            self.claude_process.stdin.write(text + "\n")
+            self.claude_process.stdin.flush()
+            self.log(f"Sent to Claude Code ({len(text)} chars): {text[:150]}...")
+            self._last_activity = datetime.now()
+            return True
+        except (BrokenPipeError, OSError) as e:
+            self.log(f"Failed to send to Claude Code: {e}", "error")
+            return False
+
+    def get_claude_code_output(self, idle_timeout=30, max_timeout=None):
+        """Read Claude Code CLI output until it goes silent.
+
+        Args:
+            idle_timeout: seconds of silence before considering output complete
+            max_timeout: max total seconds to wait (default: cycle_timeout_minutes * 60)
+
+        Returns:
+            Collected output as a single string.
+        """
+        if max_timeout is None:
+            max_timeout = self.config.get("cycle_timeout_minutes", 60) * 60
+
+        self.log(f"Reading Claude Code output (idle={idle_timeout}s, max={max_timeout}s)...")
+        lines = []
+        start = time.time()
+        last_output = time.time()
+
+        while True:
+            elapsed = time.time() - start
+            idle = time.time() - last_output
+
+            # Max timeout
+            if elapsed >= max_timeout:
+                self.log(f"Max timeout ({max_timeout}s) reached", "warning")
+                break
+
+            # Idle timeout — output is done
+            if idle >= idle_timeout and lines:
+                self.log(f"Output complete ({idle:.0f}s idle, {len(lines)} lines)")
+                break
+
+            # Try to read from queue
+            try:
+                line = self._stdout_queue.get(timeout=1)
+                lines.append(line)
+                last_output = time.time()
+                # Log progress every 50 lines
+                if len(lines) % 50 == 0:
+                    self.log(f"  ...{len(lines)} lines read so far")
+            except queue.Empty:
+                # No output available — check if process died
+                if self.claude_process.poll() is not None:
+                    self.log("Claude Code process ended", "warning")
+                    break
+
+        output = "".join(lines).strip()
+        self.log(f"Claude Code output total: {len(output)} chars, {len(lines)} lines")
+        return output
+
+    # ================================================================
+    # Advisor Chat (Playwright)
     # ================================================================
 
     def _find_input_field(self, page):
-        """Find the chat input field on claude.ai.
-
-        Tries multiple selectors for robustness against DOM changes.
-        """
         selectors = [
-            # contenteditable div (claude.ai primary)
             'div[contenteditable="true"]',
-            # ProseMirror editor
             'div.ProseMirror[contenteditable="true"]',
-            # textarea fallback
             "textarea",
-            # data-testid based
             '[data-testid="chat-input"]',
             '[data-testid="message-input"]',
-            # role based
             '[role="textbox"]',
         ]
         for sel in selectors:
@@ -190,12 +274,10 @@ class Orchestrator:
         return None
 
     def _find_stop_button(self, page):
-        """Find the Stop button (visible during response generation)."""
         selectors = [
             'button:has-text("Stop")',
             '[aria-label="Stop"]',
             '[data-testid="stop-button"]',
-            'button:has-text("stop")',
         ]
         for sel in selectors:
             try:
@@ -207,13 +289,11 @@ class Orchestrator:
         return None
 
     def _get_message_elements(self, page):
-        """Get all message blocks from the chat."""
         selectors = [
             '[data-testid*="message"]',
             '[class*="Message"]',
             '[class*="message"]',
             'div[data-is-streaming]',
-            # Generic: divs inside the conversation area
             'main div[class] > div[class]',
         ]
         for sel in selectors:
@@ -225,17 +305,10 @@ class Orchestrator:
                 continue
         return []
 
-    # ================================================================
-    # Core Operations
-    # ================================================================
-
     def send_message(self, page, text):
-        """Send a message in the chat input field.
-
-        Uses clipboard paste for long texts (>1000 chars).
-        """
+        """Send a message in the advisor chat (Playwright)."""
         if not text or not text.strip():
-            self.log("Empty message, skipping send", "warning")
+            self.log("Empty message, skipping", "warning")
             return False
 
         input_field = self._find_input_field(page)
@@ -248,121 +321,70 @@ class Orchestrator:
             time.sleep(0.5)
 
             if len(text) > 1000:
-                # Clipboard paste for long text
                 self.log(f"Pasting long text ({len(text)} chars) via clipboard")
                 page.evaluate(f"navigator.clipboard.writeText({json.dumps(text)})")
                 time.sleep(0.3)
                 page.keyboard.press("Control+v")
                 time.sleep(0.5)
             else:
-                # Direct type for short text
                 input_field.fill(text)
                 time.sleep(0.3)
 
-            # Send with Enter
             page.keyboard.press("Enter")
-            self.log(f"Message sent ({len(text)} chars): {text[:150]}...")
+            self.log(f"Sent to advisor ({len(text)} chars): {text[:150]}...")
             self._last_activity = datetime.now()
-            time.sleep(2)  # Wait for send to register
+            time.sleep(2)
             return True
-
         except Exception as e:
             self.log(f"Failed to send message: {e}", "error")
             return False
 
     def get_latest_response(self, page):
-        """Get the text of the latest assistant response."""
+        """Get the latest assistant response from advisor chat."""
         messages = self._get_message_elements(page)
         if not messages:
-            self.log("No messages found on page", "warning")
             return ""
-
         try:
-            # Get text from the last message element
-            last = messages[-1]
-            text = last.inner_text(timeout=5000)
-            return text.strip() if text else ""
+            return messages[-1].inner_text(timeout=5000).strip()
         except Exception as e:
-            self.log(f"Failed to get latest response: {e}", "warning")
+            self.log(f"Failed to get response: {e}", "warning")
             return ""
 
-    def wait_for_response_complete(self, page, timeout_seconds=None):
-        """Wait until the AI response generation is complete.
-
-        Detection methods:
-        1. Stop button disappears
-        2. Input field becomes active
-        3. Message count stabilizes
-        """
+    def wait_for_advisor_response(self, timeout_seconds=None):
+        """Wait for advisor chat to finish generating response."""
         if timeout_seconds is None:
             timeout_seconds = self.config.get("cycle_timeout_minutes", 60) * 60
 
-        self.log(f"Waiting for response (timeout={timeout_seconds}s)...")
+        self.log(f"Waiting for advisor response (timeout={timeout_seconds}s)...")
         start = time.time()
-        check_interval = 10  # seconds
-
-        # Get initial message count
-        initial_msgs = len(self._get_message_elements(page))
+        initial_msgs = len(self._get_message_elements(self.advisor_page))
         stable_count = 0
 
         while time.time() - start < timeout_seconds:
-            # Method 1: Check if Stop button is gone
-            stop_btn = self._find_stop_button(page)
+            stop_btn = self._find_stop_button(self.advisor_page)
             if stop_btn is None:
-                # No stop button — might be done. Verify with input field check.
-                input_field = self._find_input_field(page)
+                input_field = self._find_input_field(self.advisor_page)
                 if input_field:
                     try:
                         if input_field.is_enabled(timeout=2000):
-                            # Double-check: wait a moment and verify message count is stable
                             time.sleep(3)
-                            current_msgs = len(self._get_message_elements(page))
+                            current_msgs = len(self._get_message_elements(self.advisor_page))
                             if current_msgs > initial_msgs:
-                                self.log(f"Response complete (messages: {initial_msgs} -> {current_msgs})")
+                                self.log(f"Advisor response complete ({initial_msgs}->{current_msgs} msgs)")
                                 return True
                             stable_count += 1
                             if stable_count >= 2:
-                                self.log("Response appears complete (stable)")
+                                self.log("Advisor response appears complete (stable)")
                                 return True
                     except Exception:
                         pass
 
             elapsed = int(time.time() - start)
             if elapsed % 60 == 0 and elapsed > 0:
-                self.log(f"Still waiting... ({elapsed}s elapsed)")
+                self.log(f"Still waiting for advisor... ({elapsed}s)")
+            time.sleep(10)
 
-            time.sleep(check_interval)
-
-        self.log(f"Response wait timed out after {timeout_seconds}s", "warning")
-        return False
-
-    def check_if_idle(self, page):
-        """Check if the page is idle (no active generation)."""
-        stop_btn = self._find_stop_button(page)
-        if stop_btn:
-            return False
-        input_field = self._find_input_field(page)
-        if input_field:
-            try:
-                return input_field.is_enabled(timeout=2000)
-            except Exception:
-                return False
-        return True
-
-    def nudge_if_stalled(self, page, stall_minutes=None):
-        """Send a nudge message if no activity for stall_minutes."""
-        if stall_minutes is None:
-            stall_minutes = self.config.get("stall_timeout_minutes", 30)
-
-        elapsed = (datetime.now() - self._last_activity).total_seconds() / 60
-        if elapsed >= stall_minutes:
-            self.log(f"Stall detected ({elapsed:.0f} min). Sending nudge.")
-            self.send_message(
-                page,
-                "作業は完了しましたか？完了していれば結果を報告してください。"
-                "まだ作業中であれば現在のステータスを教えてください。"
-            )
-            return True
+        self.log(f"Advisor response timed out after {timeout_seconds}s", "warning")
         return False
 
     # ================================================================
@@ -370,50 +392,44 @@ class Orchestrator:
     # ================================================================
 
     def run_cycle(self):
-        """Execute one relay cycle: Code -> Advisor -> Code."""
+        """Execute one relay cycle: Code output -> Advisor -> Code input."""
         self.log("--- Cycle start ---")
 
-        # Step 1: Wait for Claude Code to finish
-        self.log("Step 1: Waiting for Claude Code response...")
-        code_done = self.wait_for_response_complete(self.claude_code_page)
-        if not code_done:
-            self.nudge_if_stalled(self.claude_code_page)
-            return
-
-        # Step 2: Get Claude Code output
-        output = self.get_latest_response(self.claude_code_page)
+        # Step 1: Read Claude Code output (waits until it goes silent)
+        self.log("Step 1: Reading Claude Code output...")
+        output = self.get_claude_code_output()
         if not output:
-            self.log("No output from Claude Code, skipping cycle", "warning")
+            self.log("No output from Claude Code, waiting...", "warning")
             time.sleep(30)
             return
-        self.log(f"Claude Code output ({len(output)} chars): {output[:200]}...")
+        self.log(f"Claude Code produced {len(output)} chars")
 
-        # Step 3: Send to advisor
-        self.log("Step 2: Sending output to advisor...")
+        # Step 2: Send to advisor
+        self.log("Step 2: Sending to advisor chat...")
         sent = self.send_message(self.advisor_page, output)
         if not sent:
-            self.log("Failed to send to advisor, retrying next cycle", "error")
+            self.log("Failed to send to advisor", "error")
             time.sleep(30)
             return
 
-        # Step 4: Wait for advisor response
+        # Step 3: Wait for advisor response
         self.log("Step 3: Waiting for advisor response...")
-        advisor_done = self.wait_for_response_complete(self.advisor_page)
-        if not advisor_done:
-            self.nudge_if_stalled(self.advisor_page)
+        done = self.wait_for_advisor_response()
+        if not done:
+            self.log("Advisor timeout", "warning")
             return
 
-        # Step 5: Get advisor response
+        # Step 4: Get advisor response
         response = self.get_latest_response(self.advisor_page)
         if not response:
-            self.log("No response from advisor, skipping", "warning")
+            self.log("Empty advisor response", "warning")
             time.sleep(30)
             return
-        self.log(f"Advisor response ({len(response)} chars): {response[:200]}...")
+        self.log(f"Advisor response: {len(response)} chars")
 
-        # Step 6: Send to Claude Code
-        self.log("Step 4: Sending advisor instructions to Claude Code...")
-        sent = self.send_message(self.claude_code_page, response)
+        # Step 5: Send to Claude Code
+        self.log("Step 4: Sending to Claude Code CLI...")
+        sent = self.send_to_claude_code(response)
         if not sent:
             self.log("Failed to send to Claude Code", "error")
             time.sleep(30)
@@ -422,11 +438,13 @@ class Orchestrator:
         self.log("--- Cycle complete ---")
 
     def run(self):
-        """Main loop. Runs cycles continuously until interrupted."""
+        """Main loop."""
         self.setup_browser()
+        self.setup_claude_code()
         self.log("=== Orchestrator started ===")
+        self.log(f"Mode: subprocess (CLI)")
         self.log(f"Advisor: {self.config.get('advisor_chat_url', 'N/A')}")
-        self.log(f"Claude Code: {self.config.get('claude_code_url', 'N/A')}")
+        self.log(f"Project: {self.config.get('claude_code_project_dir', 'N/A')}")
 
         retry_delay = self.config.get("retry_delay_seconds", 30)
         max_retries = self.config.get("retry_max", 3)
@@ -438,13 +456,12 @@ class Orchestrator:
                     self.run_cycle()
                     self._cycle_count += 1
                     consecutive_errors = 0
-                    self.log(f"Cycle {self._cycle_count} completed successfully")
+                    self.log(f"Cycle {self._cycle_count} completed")
                 except PlaywrightTimeout as e:
                     consecutive_errors += 1
-                    self.log(f"Timeout in cycle: {e}", "warning")
+                    self.log(f"Timeout: {e}", "warning")
                     if consecutive_errors >= max_retries:
-                        self.log(f"{max_retries} consecutive errors, reloading pages", "warning")
-                        self._reload_pages()
+                        self._reload_advisor()
                         consecutive_errors = 0
                     time.sleep(retry_delay)
                 except Exception as e:
@@ -452,8 +469,7 @@ class Orchestrator:
                     self.log(f"Error in cycle {self._cycle_count}: {e}", "error")
                     self.log(traceback.format_exc(), "error")
                     if consecutive_errors >= max_retries:
-                        self.log("Too many errors, reloading pages", "warning")
-                        self._reload_pages()
+                        self._reload_advisor()
                         consecutive_errors = 0
                     time.sleep(retry_delay)
         except KeyboardInterrupt:
@@ -461,28 +477,40 @@ class Orchestrator:
         finally:
             self.cleanup()
 
-    def _reload_pages(self):
-        """Reload both pages to recover from errors."""
+    def _reload_advisor(self):
+        """Reload advisor page to recover from errors."""
         try:
             if self.advisor_page:
                 self.advisor_page.reload(wait_until="domcontentloaded", timeout=30000)
-            if self.claude_code_page:
-                self.claude_code_page.reload(wait_until="domcontentloaded", timeout=30000)
             time.sleep(5)
-            self.log("Pages reloaded")
+            self.log("Advisor page reloaded")
         except Exception as e:
-            self.log(f"Page reload failed: {e}", "error")
+            self.log(f"Advisor reload failed: {e}", "error")
 
     def cleanup(self):
-        """Close browser and playwright."""
+        """Shut down Claude Code process and browser."""
         self.log("Cleaning up...")
+        # Stop Claude Code CLI
+        if self.claude_process and self.claude_process.poll() is None:
+            try:
+                self.claude_process.stdin.close()
+                self.claude_process.terminate()
+                self.claude_process.wait(timeout=10)
+                self.log("Claude Code CLI terminated")
+            except Exception as e:
+                self.log(f"Claude Code cleanup error: {e}", "warning")
+                try:
+                    self.claude_process.kill()
+                except Exception:
+                    pass
+        # Close browser
         try:
             if self.context:
                 self.context.close()
             if self.playwright:
                 self.playwright.stop()
         except Exception as e:
-            self.log(f"Cleanup error: {e}", "warning")
+            self.log(f"Browser cleanup error: {e}", "warning")
         self.log("=== Orchestrator stopped ===")
 
     # ================================================================
@@ -490,80 +518,74 @@ class Orchestrator:
     # ================================================================
 
     def test(self):
-        """Test mode: open browser with dedicated profile, verify login state and elements."""
+        """Test mode: verify browser + Claude Code CLI."""
         self.log("=== TEST MODE ===")
 
-        # Use the same dedicated profile as production (session is shared)
+        # --- Test 1: Browser (advisor) ---
+        self.log("--- Test 1: Browser (advisor chat) ---")
         profile_dir = self._get_profile_dir()
         profile_dir.mkdir(parents=True, exist_ok=True)
         first_time = not (profile_dir / "Default").exists()
 
-        self.log(f"Using profile: {profile_dir}")
-        if first_time:
-            self.log("First launch — you will need to log in manually.")
-
+        self.log(f"Profile: {profile_dir}")
         self.playwright = sync_playwright().start()
         self.context = self.playwright.chromium.launch_persistent_context(
             user_data_dir=str(profile_dir),
             headless=False,
-            args=[
-                "--disable-blink-features=AutomationControlled",
-                "--no-first-run",
-            ],
+            args=["--disable-blink-features=AutomationControlled", "--no-first-run"],
             viewport={"width": 1200, "height": 800},
         )
 
         page = self.context.pages[0] if self.context.pages else self.context.new_page()
-        self.log("Opening claude.ai...")
         page.goto("https://claude.ai", wait_until="domcontentloaded", timeout=60000)
         time.sleep(5)
 
-        # Check current URL — login redirect?
-        current_url = page.url
-        self.log(f"Current URL: {current_url}")
-        title = page.title()
-        self.log(f"Page title: {title}")
-
-        if "login" in current_url.lower() or "sign" in current_url.lower():
-            self.log("[ACTION] Login page detected. Please log in in the browser window.")
-            self.log("[ACTION] After logging in, press Enter here to continue...")
+        if "login" in page.url.lower() or "sign" in page.url.lower():
+            self.log("[ACTION] Login required. Please log in, then press Enter...")
             input()
             time.sleep(3)
-            current_url = page.url
-            self.log(f"URL after login: {current_url}")
 
-        # Check for input field (proves we're on the chat page)
-        self.log("Looking for chat input field...")
         input_field = self._find_input_field(page)
-        if input_field:
-            self.log("[PASS] Input field found — logged in and ready")
-        else:
-            self.log("[WARN] Input field not found (might need to navigate to a chat)")
+        self.log(f"[{'PASS' if input_field else 'WARN'}] Advisor input field: {'found' if input_field else 'not found'}")
+
+        # --- Test 2: Claude Code CLI ---
+        self.log("")
+        self.log("--- Test 2: Claude Code CLI (subprocess) ---")
+        try:
+            self.setup_claude_code()
+            self.log("[PASS] Claude Code CLI started")
+
+            # Send a test command
+            self.log("Sending test: 'echo test from orchestrator'")
+            self.send_to_claude_code("echo test from orchestrator と表示してください")
+            time.sleep(5)
+
+            # Read output
+            output = self.get_claude_code_output(idle_timeout=15, max_timeout=60)
+            if output:
+                self.log(f"[PASS] Got output ({len(output)} chars): {output[:200]}...")
+            else:
+                self.log("[WARN] No output received (CLI may need more time)")
+
+        except FileNotFoundError as e:
+            self.log(f"[FAIL] Claude CLI not found: {e}", "error")
+        except Exception as e:
+            self.log(f"[FAIL] Claude Code test error: {e}", "error")
 
         self.log("")
         self.log("=== TEST COMPLETE ===")
-        self.log("Session has been saved to the profile directory.")
-        self.log("Next launch (test or production) will reuse this session.")
-        self.log("")
-        self.log("Press Enter to close the browser...")
+        self.log("Press Enter to close...")
         input()
         self.cleanup()
 
 
-# ================================================================
-# CLI Entry Point
-# ================================================================
-
 def main():
-    parser = argparse.ArgumentParser(description="OSCAR2 Orchestrator - Advisor/Code relay")
-    parser.add_argument("--config", "-c", default="orchestrator_config.json",
-                        help="Path to config file")
-    parser.add_argument("--test", "-t", action="store_true",
-                        help="Test mode: verify browser and elements")
+    parser = argparse.ArgumentParser(description="OSCAR2 Orchestrator")
+    parser.add_argument("--config", "-c", default="orchestrator_config.json")
+    parser.add_argument("--test", "-t", action="store_true")
     args = parser.parse_args()
 
     orch = Orchestrator(config_path=args.config)
-
     if args.test:
         orch.test()
     else:

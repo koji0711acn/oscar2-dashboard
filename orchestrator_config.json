@@ -1,8 +1,10 @@
 {
   "advisor_chat_url": "https://claude.ai/chat/1025dba1-9015-4d4c-bc34-430e7fdeb889",
-  "claude_code_url": "https://claude.ai/code",
+  "claude_code_url": "https://claude.ai/code/session_013oHwYVUw5b2CBcnUn1vEv4",
   "chrome_profile_path": "C:\\Users\\koji3\\AppData\\Local\\Google\\Chrome\\User Data",
   "chrome_profile_copy_dir": "C:\\Users\\koji3\\AppData\\Local\\Google\\Chrome\\OrchestratorProfile",
+  "claude_code_mode": "subprocess",
+  "claude_code_project_dir": "C:\\Users\\koji3\\OneDrive\\デスクトップ\\blog_automation",
   "stall_timeout_minutes": 30,
   "cycle_timeout_minutes": 60,
   "retry_max": 3,
