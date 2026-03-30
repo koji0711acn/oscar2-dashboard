@@ -13,7 +13,7 @@
       "name": "OSCAR2 自己監視",
       "path": "oscar2",
       "auto_restart": false,
-      "stall_timeout_minutes": 50,
+      "stall_timeout_minutes": 45,
       "max_cost_per_day_usd": 5
     }
   ],
@@ -23,6 +23,6 @@
     "base_path": "C:\\Users\\koji3\\OneDrive\\デスクトップ",
     "dashboard_token": null,
     "localhost_no_auth": true,
-    "remote_dashboard_url": null
+    "remote_dashboard_url": "https://believable-cooperation-production.up.railway.app"
   }
 }

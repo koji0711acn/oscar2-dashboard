@@ -4,7 +4,8 @@ import sqlite3
 import os
 from datetime import datetime, date, timedelta
 
-DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "oscar2.db")
+DB_PATH = os.environ.get("DATABASE_PATH",
+          os.path.join(os.path.dirname(os.path.abspath(__file__)), "oscar2.db"))
 
 
 def get_connection():

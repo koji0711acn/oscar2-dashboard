@@ -7,9 +7,16 @@ import sys
 import os
 import logging
 
-from dotenv import load_dotenv
-_env_path = os.path.join("C:\\Users\\koji3\\OneDrive\\デスクトップ\\blog_automation", ".env")
-load_dotenv(_env_path, override=False)
+try:
+    from dotenv import load_dotenv
+    _base = os.path.dirname(os.path.abspath(__file__))
+    load_dotenv(os.path.join(_base, ".env"), override=False)
+    _blog_env = os.path.join(os.environ.get("OSCAR_BASE_PATH",
+                             "C:\\Users\\koji3\\OneDrive\\デスクトップ"), "blog_automation", ".env")
+    if os.path.exists(_blog_env):
+        load_dotenv(_blog_env, override=False)
+except ImportError:
+    pass
 
 import process_monitor
 import cli_controller
@@ -197,20 +204,30 @@ def _send_heartbeat(config, project_config, status, pid):
 
     try:
         import requests
+        from datetime import datetime as dt
+
+        # Include running batch info
+        running_batch = task_backlog.get_running_batch(project_config["id"])
+        current_task = running_batch["batch_name"] if running_batch else None
+
         url = f"{remote_url.rstrip('/')}/api/heartbeat"
         payload = {
             "project_id": project_config["id"],
             "status": status,
             "pid": pid,
-            "current_task": None,
+            "current_task": current_task,
             "last_event": f"status={status}",
-            "timestamp": __import__("datetime").datetime.now().isoformat(),
+            "timestamp": dt.now().isoformat(),
         }
         token = os.environ.get("DASHBOARD_TOKEN") or config.get("oscar", {}).get("dashboard_token")
-        headers = {}
+        headers = {"Content-Type": "application/json"}
         if token:
             headers["Authorization"] = f"Bearer {token}"
-        requests.post(url, json=payload, headers=headers, timeout=5)
+        resp = requests.post(url, json=payload, headers=headers, timeout=5)
+        if resp.status_code == 200:
+            logger.debug(f"Heartbeat sent for {project_config['id']}")
+        else:
+            logger.debug(f"Heartbeat response: {resp.status_code}")
     except Exception as e:
         logger.debug(f"Heartbeat send failed: {e}")
 

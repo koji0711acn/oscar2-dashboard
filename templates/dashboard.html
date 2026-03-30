@@ -106,6 +106,7 @@
     <button class="tab-btn" onclick="switchTab('decomposer',this)">Task Decomposer</button>
     <button class="tab-btn" onclick="switchTab('analytics',this)">Analytics</button>
     <button class="tab-btn" onclick="switchTab('notifications',this)">Notifications</button>
+    <button class="tab-btn" onclick="switchTab('artifacts',this)">Artifacts</button>
 </div>
 
 <!-- ============ HOME TAB ============ -->
@@ -291,6 +292,31 @@
     </div>
 </div>
 
+<!-- ============ ARTIFACTS TAB ============ -->
+<div id="tab-artifacts" class="tab-content">
+    <h2>Artifacts Browser</h2>
+    <div class="filters">
+        <label>Project:</label>
+        <select id="art-proj" onchange="loadArtifacts()">
+            {% for p in projects %}<option value="{{p.id}}">{{p.name}}</option>{% endfor %}
+        </select>
+        <label style="margin-left:12px">Preview width:</label>
+        <select id="art-width" onchange="setPreviewWidth()">
+            <option value="100%">Full</option>
+            <option value="800px">Desktop (800px)</option>
+            <option value="375px">Mobile (375px)</option>
+        </select>
+    </div>
+    <div id="art-list" style="margin-bottom:12px"></div>
+    <div id="art-preview" style="display:none;background:#1a2733;border-radius:10px;padding:12px">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+            <h3 id="art-preview-title" style="margin:0">Preview</h3>
+            <button class="btn btn-sm btn-stop" onclick="closePreview()">Close</button>
+        </div>
+        <iframe id="art-iframe" style="width:100%;height:600px;border:1px solid #263238;border-radius:6px;background:#fff" sandbox="allow-same-origin"></iframe>
+    </div>
+</div>
+
 <p class="refresh-note">Auto-refresh: <span class="cd" id="cd">10</span>s</p>
 
 <script>
@@ -309,6 +335,7 @@ function switchTab(name,el){
     if(name==='queue')loadQueue();
     if(name==='analytics')loadCharts();
     if(name==='notifications')loadNotifications();
+    if(name==='artifacts')loadArtifacts();
 }
 
 // === Generic API helpers ===
@@ -453,6 +480,32 @@ async function testNotification(){
     alert('Test notification logged. Check Notifications tab.');
     loadNotifications();
 }
+
+// === Artifacts ===
+async function loadArtifacts(){
+    const proj=document.getElementById('art-proj').value;
+    const list=document.getElementById('art-list');
+    try{
+        const items=await apiJson('/api/artifacts/'+encodeURIComponent(proj));
+        if(!items||!items.length){list.innerHTML='<div style="text-align:center;color:#546e7a;padding:16px">No files in output/</div>';return}
+        list.innerHTML='<table class="tbl"><thead><tr><th>Name</th><th>Type</th><th>Size</th><th>Modified</th><th>Actions</th></tr></thead><tbody>'+
+        items.map(f=>{
+            const sizeKB=(f.size/1024).toFixed(1);
+            return `<tr><td>${esc(f.name)}</td><td><span class="badge ${f.type}">${f.type}</span></td><td>${sizeKB}KB</td><td>${f.modified}</td><td>`+
+            (f.type==='html'?`<button class="btn btn-primary btn-sm" onclick="previewArtifact('${proj}','${encodeURIComponent(f.name)}','${esc(f.name)}')">Preview</button> `:'')+
+            `<a class="btn btn-sm btn-start" href="/api/artifacts/${proj}/download/${encodeURIComponent(f.name)}" target="_blank">Download</a></td></tr>`;
+        }).join('')+'</tbody></table>';
+    }catch(e){list.innerHTML='<div style="color:#f44336;padding:8px">Error: '+esc(e.message)+'</div>'}
+}
+function previewArtifact(proj,fname,display){
+    document.getElementById('art-preview').style.display='block';
+    document.getElementById('art-preview-title').textContent='Preview: '+decodeURIComponent(display||fname);
+    const iframe=document.getElementById('art-iframe');
+    iframe.src='/api/artifacts/'+proj+'/view/'+fname;
+    setPreviewWidth();
+}
+function closePreview(){document.getElementById('art-preview').style.display='none';document.getElementById('art-iframe').src=''}
+function setPreviewWidth(){const w=document.getElementById('art-width').value;document.getElementById('art-iframe').style.width=w}
 
 // === Auto-refresh ===
 let cd=10;setInterval(()=>{cd--;const el=document.getElementById('cd');if(el)el.textContent=cd;if(cd<=0)location.reload()},1000);

@@ -5,12 +5,19 @@ import os
 import subprocess
 import functools
 from datetime import datetime
-from flask import Flask, render_template, jsonify, request
+from flask import Flask, render_template, jsonify, request, send_file
 
-# Load .env from blog_automation (contains API keys)
-from dotenv import load_dotenv
-_env_path = os.path.join("C:\\Users\\koji3\\OneDrive\\デスクトップ\\blog_automation", ".env")
-load_dotenv(_env_path, override=False)  # no error if file missing
+# Load .env (try local .env first, then blog_automation)
+try:
+    from dotenv import load_dotenv
+    _base = os.path.dirname(os.path.abspath(__file__))
+    load_dotenv(os.path.join(_base, ".env"), override=False)
+    _blog_env = os.path.join(os.environ.get("OSCAR_BASE_PATH", "C:\\Users\\koji3\\OneDrive\\デスクトップ"),
+                             "blog_automation", ".env")
+    if os.path.exists(_blog_env):
+        load_dotenv(_blog_env, override=False)
+except ImportError:
+    pass  # dotenv optional on Railway (env vars set directly)
 
 import models
 import cli_controller
@@ -19,7 +26,24 @@ import task_decomposer
 
 app = Flask(__name__)
 
-CONFIG_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "config.json")
+_BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+CONFIG_PATH = os.path.join(_BASE_DIR, "config.json")
+
+# Cloud mode: OSCAR_MODE=cloud disables local process monitoring
+CLOUD_MODE = os.environ.get("OSCAR_MODE", "").lower() == "cloud"
+
+# Default config for Railway (no config.json on disk)
+_DEFAULT_CONFIG = {
+    "projects": [
+        {"id": "blog_automation", "name": "Blog Automation", "path": "blog_automation",
+         "auto_restart": True, "stall_timeout_minutes": 30, "max_cost_per_day_usd": 10},
+    ],
+    "oscar": {
+        "dashboard_port": 5001, "check_interval_seconds": 60,
+        "base_path": os.environ.get("OSCAR_BASE_PATH", "/app"),
+        "dashboard_token": None, "localhost_no_auth": True, "remote_dashboard_url": None,
+    }
+}
 
 # Track when monitoring started (for uptime calculation)
 _start_time = datetime.now()
@@ -73,13 +97,31 @@ def require_auth(f):
 
 
 def load_config():
-    with open(CONFIG_PATH, "r", encoding="utf-8") as f:
-        return json.load(f)
+    """Load config from file, env var OSCAR_CONFIG, or use defaults."""
+    # Try env var first (for Railway)
+    env_config = os.environ.get("OSCAR_CONFIG")
+    if env_config:
+        try:
+            return json.loads(env_config)
+        except json.JSONDecodeError:
+            pass
+
+    # Try config.json file
+    if os.path.exists(CONFIG_PATH):
+        with open(CONFIG_PATH, "r", encoding="utf-8") as f:
+            return json.load(f)
+
+    # Generate default config
+    return _DEFAULT_CONFIG.copy()
 
 
 def save_config(config):
-    with open(CONFIG_PATH, "w", encoding="utf-8") as f:
-        json.dump(config, f, indent=2, ensure_ascii=False)
+    """Save config to file. Skips if config.json doesn't exist (cloud mode)."""
+    try:
+        with open(CONFIG_PATH, "w", encoding="utf-8") as f:
+            json.dump(config, f, indent=2, ensure_ascii=False)
+    except OSError:
+        pass  # Cloud mode: can't write config.json
 
 
 def get_project_config(project_id):
@@ -92,7 +134,7 @@ def get_project_config(project_id):
 
 def _get_project_extra_info(project_config, oscar_config):
     """Get additional info for a project: current task, git log, test results, uptime, tokens."""
-    project_path = os.path.join(oscar_config["base_path"], project_config["path"])
+    project_path = os.path.join(oscar_config.get("base_path", "/app"), project_config["path"])
     info = {
         "current_task": None,
         "latest_commit": None,
@@ -100,6 +142,15 @@ def _get_project_extra_info(project_config, oscar_config):
         "uptime_seconds": (datetime.now() - _start_time).total_seconds(),
         "estimated_tokens": None,
     }
+
+    # In cloud mode, skip local file checks
+    if CLOUD_MODE:
+        state = models.get_project_state(project_config["id"])
+        if state:
+            today = datetime.now().strftime("%Y-%m-%d")
+            cost = models.get_daily_cost(project_config["id"], today)
+            info["estimated_tokens"] = int(cost / 0.00003) if cost and cost > 0 else 0
+        return info
 
     # Current task from current_task.md
     task_file = os.path.join(project_path, "current_task.md")
@@ -604,9 +655,116 @@ def api_heartbeat():
     return jsonify({"status": "received", "timestamp": timestamp})
 
 
+# --- Artifacts API (local mode only) ---
+
+@app.route("/api/artifacts/<project_id>")
+@require_auth
+def api_artifacts_list(project_id):
+    """List files in project's output/ directory."""
+    if CLOUD_MODE:
+        return jsonify({"error": "Artifacts only available on local dashboard"}), 400
+
+    config = load_config()
+    oscar_config = config.get("oscar", {})
+    base = oscar_config.get("base_path", "")
+    project_config = None
+    for p in config.get("projects", []):
+        if p["id"] == project_id:
+            project_config = p
+            break
+    if not project_config:
+        return jsonify({"error": "Project not found"}), 404
+
+    output_dir = os.path.join(base, project_config["path"], "output")
+    if not os.path.isdir(output_dir):
+        return jsonify([])
+
+    files = []
+    for fname in os.listdir(output_dir):
+        fpath = os.path.join(output_dir, fname)
+        if os.path.isfile(fpath):
+            ext = os.path.splitext(fname)[1].lower()
+            ftype = "html" if ext == ".html" else "json" if ext == ".json" else "image" if ext in (".png", ".jpg", ".jpeg", ".gif", ".webp") else "text" if ext in (".txt", ".md", ".csv") else "other"
+            files.append({
+                "name": fname,
+                "type": ftype,
+                "size": os.path.getsize(fpath),
+                "modified": datetime.fromtimestamp(os.path.getmtime(fpath)).isoformat(),
+            })
+    files.sort(key=lambda f: f["modified"], reverse=True)
+    return jsonify(files)
+
+
+@app.route("/api/artifacts/<project_id>/view/<path:filename>")
+@require_auth
+def api_artifacts_view(project_id, filename):
+    """View file content (HTML rendered, text as plain text, JSON parsed)."""
+    if CLOUD_MODE:
+        return jsonify({"error": "Artifacts only available on local dashboard"}), 400
+
+    config = load_config()
+    base = config.get("oscar", {}).get("base_path", "")
+    project_config = None
+    for p in config.get("projects", []):
+        if p["id"] == project_id:
+            project_config = p
+            break
+    if not project_config:
+        return jsonify({"error": "Project not found"}), 404
+
+    fpath = os.path.join(base, project_config["path"], "output", filename)
+    if not os.path.isfile(fpath):
+        return jsonify({"error": "File not found"}), 404
+
+    # Prevent directory traversal
+    real = os.path.realpath(fpath)
+    allowed = os.path.realpath(os.path.join(base, project_config["path"], "output"))
+    if not real.startswith(allowed):
+        return jsonify({"error": "Forbidden"}), 403
+
+    ext = os.path.splitext(filename)[1].lower()
+    if ext == ".html":
+        with open(fpath, "r", encoding="utf-8") as f:
+            return f.read(), 200, {"Content-Type": "text/html; charset=utf-8"}
+    elif ext == ".json":
+        with open(fpath, "r", encoding="utf-8") as f:
+            return jsonify(json.load(f))
+    elif ext in (".png", ".jpg", ".jpeg", ".gif", ".webp"):
+        return send_file(fpath)
+    else:
+        with open(fpath, "r", encoding="utf-8", errors="replace") as f:
+            return f.read(), 200, {"Content-Type": "text/plain; charset=utf-8"}
+
+
+@app.route("/api/artifacts/<project_id>/download/<path:filename>")
+@require_auth
+def api_artifacts_download(project_id, filename):
+    """Download a file."""
+    if CLOUD_MODE:
+        return jsonify({"error": "Artifacts only available on local dashboard"}), 400
+
+    config = load_config()
+    base = config.get("oscar", {}).get("base_path", "")
+    project_config = None
+    for p in config.get("projects", []):
+        if p["id"] == project_id:
+            project_config = p
+            break
+    if not project_config:
+        return jsonify({"error": "Project not found"}), 404
+
+    fpath = os.path.join(base, project_config["path"], "output", filename)
+    real = os.path.realpath(fpath)
+    allowed = os.path.realpath(os.path.join(base, project_config["path"], "output"))
+    if not real.startswith(allowed) or not os.path.isfile(fpath):
+        return jsonify({"error": "Not found"}), 404
+
+    return send_file(fpath, as_attachment=True, download_name=filename)
+
+
 if __name__ == "__main__":
     models.init_db()
     config = load_config()
-    port = int(os.environ.get("PORT", config["oscar"].get("dashboard_port", 5001)))
+    port = int(os.environ.get("PORT", config.get("oscar", {}).get("dashboard_port", 5001)))
     print(f"OSCAR2 Dashboard running on http://localhost:{port}")
     app.run(host="0.0.0.0", port=port, debug=False)
