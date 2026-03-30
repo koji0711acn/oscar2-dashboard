@@ -83,44 +83,56 @@ class Orchestrator:
     # Browser Setup
     # ================================================================
 
-    def setup_browser(self):
-        """Launch Chrome with persistent profile (logged-in state) and open two tabs."""
-        chrome_profile = self.config.get(
-            "chrome_profile_path",
-            r"C:\Users\koji3\AppData\Local\Google\Chrome\User Data"
-        )
+    def _get_profile_dir(self):
+        """Get the dedicated Orchestrator Chrome profile directory.
 
-        self.log(f"Launching Chrome with profile: {chrome_profile}")
+        Uses chrome_profile_copy_dir from config. This is a standalone
+        Playwright profile — separate from the user's main Chrome.
+        On first launch, the user logs in manually. After that, the
+        session is persisted in this directory automatically.
+        """
+        default_dir = r"C:\Users\koji3\AppData\Local\Google\Chrome\OrchestratorProfile"
+        return Path(self.config.get("chrome_profile_copy_dir", default_dir))
+
+    def setup_browser(self):
+        """Launch Chromium with a dedicated persistent profile and open two tabs.
+
+        Uses a separate profile directory (chrome_profile_copy_dir) so that
+        the user's normal Chrome can stay open without lock conflicts.
+        First launch requires manual login to claude.ai; subsequent launches
+        reuse the saved session automatically.
+        """
+        profile_dir = self._get_profile_dir()
+        profile_dir.mkdir(parents=True, exist_ok=True)
+        first_time = not (profile_dir / "Default").exists()
+
+        self.log(f"Using Orchestrator profile: {profile_dir}")
+        if first_time:
+            self.log("First launch — you will need to log in to claude.ai manually.")
+
         self.playwright = sync_playwright().start()
 
-        # Use a separate profile directory to avoid Chrome lock conflicts
-        # Copy approach: use playwright's own user data dir with Chrome cookies
-        profile_dir = Path(chrome_profile)
-        if not profile_dir.exists():
-            self.log(f"Chrome profile not found: {chrome_profile}", "warning")
+        self.context = self.playwright.chromium.launch_persistent_context(
+            user_data_dir=str(profile_dir),
+            headless=False,
+            args=[
+                "--disable-blink-features=AutomationControlled",
+                "--no-first-run",
+                "--no-default-browser-check",
+            ],
+            viewport={"width": 1400, "height": 900},
+            slow_mo=100,
+        )
 
-        try:
-            self.context = self.playwright.chromium.launch_persistent_context(
-                user_data_dir=str(profile_dir),
-                headless=False,
-                channel="chrome",  # Use installed Chrome
-                args=[
-                    "--disable-blink-features=AutomationControlled",
-                    "--no-first-run",
-                ],
-                viewport={"width": 1400, "height": 900},
-                slow_mo=100,  # Small delay for stability
-            )
-        except Exception as e:
-            self.log(f"Chrome launch with profile failed: {e}", "warning")
-            self.log("Trying with temporary profile (you may need to log in manually)")
-            self.context = self.playwright.chromium.launch_persistent_context(
-                user_data_dir=str(Path.home() / ".orchestrator_chrome_profile"),
-                headless=False,
-                args=["--disable-blink-features=AutomationControlled"],
-                viewport={"width": 1400, "height": 900},
-                slow_mo=100,
-            )
+        # On first launch, navigate to claude.ai and wait for manual login
+        if first_time:
+            page = self.context.pages[0] if self.context.pages else self.context.new_page()
+            self.log("Opening claude.ai for initial login...")
+            page.goto("https://claude.ai", wait_until="domcontentloaded", timeout=60000)
+            self.log(">>> Please log in to claude.ai in the browser window <<<")
+            self.log(">>> After logging in, press Enter here to continue <<<")
+            input()
+            self.log("Login confirmed. Session will be saved for future launches.")
 
         # Open advisor chat tab
         advisor_url = self.config.get("advisor_chat_url", "")
@@ -478,49 +490,61 @@ class Orchestrator:
     # ================================================================
 
     def test(self):
-        """Test mode: open browser, verify elements, send test message to a new chat."""
+        """Test mode: open browser with dedicated profile, verify login state and elements."""
         self.log("=== TEST MODE ===")
 
-        # Use a temp profile for testing
+        # Use the same dedicated profile as production (session is shared)
+        profile_dir = self._get_profile_dir()
+        profile_dir.mkdir(parents=True, exist_ok=True)
+        first_time = not (profile_dir / "Default").exists()
+
+        self.log(f"Using profile: {profile_dir}")
+        if first_time:
+            self.log("First launch — you will need to log in manually.")
+
         self.playwright = sync_playwright().start()
         self.context = self.playwright.chromium.launch_persistent_context(
-            user_data_dir=str(Path.home() / ".orchestrator_test_profile"),
+            user_data_dir=str(profile_dir),
             headless=False,
-            args=["--disable-blink-features=AutomationControlled"],
+            args=[
+                "--disable-blink-features=AutomationControlled",
+                "--no-first-run",
+            ],
             viewport={"width": 1200, "height": 800},
         )
 
-        page = self.context.new_page()
+        page = self.context.pages[0] if self.context.pages else self.context.new_page()
         self.log("Opening claude.ai...")
-        page.goto("https://claude.ai", wait_until="domcontentloaded", timeout=30000)
+        page.goto("https://claude.ai", wait_until="domcontentloaded", timeout=60000)
         time.sleep(5)
 
-        # Check if we can find input field
-        self.log("Looking for input field...")
-        input_field = self._find_input_field(page)
-        if input_field:
-            self.log("[PASS] Input field found")
-        else:
-            self.log("[INFO] Input field not found - you may need to log in first")
-
-        # Check page title
+        # Check current URL — login redirect?
+        current_url = page.url
+        self.log(f"Current URL: {current_url}")
         title = page.title()
         self.log(f"Page title: {title}")
 
-        # Check if login is required
-        if "login" in page.url.lower() or "sign" in page.url.lower():
-            self.log("[INFO] Login page detected. Please log in manually in the browser window.")
-            self.log("[INFO] After logging in, press Enter in this terminal to continue...")
-            input("Press Enter after logging in...")
+        if "login" in current_url.lower() or "sign" in current_url.lower():
+            self.log("[ACTION] Login page detected. Please log in in the browser window.")
+            self.log("[ACTION] After logging in, press Enter here to continue...")
+            input()
+            time.sleep(3)
+            current_url = page.url
+            self.log(f"URL after login: {current_url}")
 
-            # Re-check input field after login
-            input_field = self._find_input_field(page)
-            if input_field:
-                self.log("[PASS] Input field found after login")
-            else:
-                self.log("[WARN] Input field still not found")
+        # Check for input field (proves we're on the chat page)
+        self.log("Looking for chat input field...")
+        input_field = self._find_input_field(page)
+        if input_field:
+            self.log("[PASS] Input field found — logged in and ready")
+        else:
+            self.log("[WARN] Input field not found (might need to navigate to a chat)")
 
+        self.log("")
         self.log("=== TEST COMPLETE ===")
+        self.log("Session has been saved to the profile directory.")
+        self.log("Next launch (test or production) will reuse this session.")
+        self.log("")
         self.log("Press Enter to close the browser...")
         input()
         self.cleanup()
