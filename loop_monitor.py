@@ -32,10 +32,11 @@ def check_claude_code_running():
     """Claude Codeのプロセスが生きているか確認"""
     try:
         result = subprocess.run(
-            ["tasklist", "/FI", "IMAGENAME eq claude.exe", "/FI", "IMAGENAME eq node.exe"],
+            ["tasklist"],
             capture_output=True, text=True, encoding="utf-8", errors="replace"
         )
-        return "claude" in result.stdout.lower() or "node" in result.stdout.lower()
+        output = result.stdout.lower()
+        return "claude.exe" in output or "node.exe" in output or "claude.cmd" in output
     except Exception:
         return False
 
@@ -99,8 +100,9 @@ def recover(status, detail):
         # Claude Codeがanswer.mdを読みに行っていない
         log("対処: Claude Codeに催促を送信（claude -p）")
         try:
+            claude_cmd = r'C:\Users\koji3\AppData\Roaming\npm\claude.cmd'
             result = subprocess.run(
-                ["claude", "-p",
+                [claude_cmd, "-p",
                  "C:\\Users\\koji3\\shared-advisor\\answer.md に参謀からの新しい指示が書かれています。読み取って指示に従ってください。完了したら結果をquestion.mdに書いてquestion_ready.flagを立ててください。",
                  "--dangerously-skip-permissions"],
                 cwd=str(BLOG_DIR),
