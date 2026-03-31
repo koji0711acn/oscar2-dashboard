@@ -9,8 +9,8 @@ from pathlib import Path
 
 SHARED_DIR = Path(r"C:\Users\koji3\shared-advisor")
 BLOG_DIR = Path(r"C:\Users\koji3\OneDrive\デスクトップ\blog_automation")
-CHECK_INTERVAL = 60  # 60秒ごとにチェック
-STALL_THRESHOLD_MINUTES = 15  # 15分間変化がなければ滞りと判定
+CHECK_INTERVAL = 120  # 120秒（2分）ごとにチェック
+STALL_THRESHOLD_MINUTES = 60  # 60分間変化がなければ滞りと判定
 LOG_FILE = Path(r"C:\Users\koji3\OneDrive\デスクトップ\oscar2\logs\loop_monitor.log")
 
 def log(msg, level="INFO"):
