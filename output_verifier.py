@@ -223,4 +223,51 @@ def verify_project_output(project_path, keyword=""):
         if not pr["pass"]:
             combined["pass"] = False
 
+    # Also run railway validation on the latest HTML
+    if html_files:
+        with open(html_files[0][1], "r", encoding="utf-8", errors="replace") as f:
+            html_content = f.read()
+        rr = verify_railway_html(html_content)
+        combined["railway_result"] = rr
+        if not rr["pass"]:
+            combined["pass"] = False
+
     return combined
+
+
+def verify_railway_html(html_content):
+    """Apply railway_test.py validation logic to HTML content.
+
+    Checks for forbidden elements: visual-card, figure, iframe.
+    Returns: {"pass": bool, "failures": [...], "warnings": [...]}
+    """
+    result = {"pass": True, "failures": [], "warnings": []}
+
+    visual_cards = len(re.findall(r'class="visual-card"', html_content, re.IGNORECASE))
+    figures = len(re.findall(r'<figure', html_content, re.IGNORECASE))
+    iframes = len(re.findall(r'<iframe', html_content, re.IGNORECASE))
+
+    if visual_cards > 0:
+        result["pass"] = False
+        result["failures"].append({
+            "type": "forbidden_element",
+            "detail": f"visual-card: {visual_cards} instances found (must be 0)",
+        })
+    if figures > 0:
+        result["pass"] = False
+        result["failures"].append({
+            "type": "forbidden_element",
+            "detail": f"figure: {figures} instances found (must be 0)",
+        })
+    if iframes > 0:
+        result["pass"] = False
+        result["failures"].append({
+            "type": "forbidden_element",
+            "detail": f"iframe: {iframes} instances found (must be 0)",
+        })
+
+    if not html_content.strip():
+        result["pass"] = False
+        result["failures"].append({"type": "empty_html", "detail": "article HTML is empty"})
+
+    return result
