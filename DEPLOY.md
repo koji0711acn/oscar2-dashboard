@@ -149,6 +149,29 @@ railway up
 
 | 変数名 | 説明 | 必須 |
 |---|---|---|
-| `DASHBOARD_TOKEN` | API認証トークン | 推奨 |
-| `ANTHROPIC_API_KEY` | Anthropic API キー (Task Decomposer用) | オプション |
+| `DASHBOARD_PASSWORD` | ダッシュボードログインパスワード | **必須** (設定しないとログイン不要でアクセス可能) |
+| `SECRET_KEY` | Flask セッション暗号鍵 (任意の長い文字列) | **必須** |
+| `DASHBOARD_TOKEN` | API認証トークン (Bearer header用) | 推奨 |
+| `OPENAI_API_KEY` | OpenAI API キー (Task Decomposer gpt-4o用) | オプション |
 | `PORT` | サーバーポート (Railway自動設定) | 不要 |
+| `OSCAR_MODE` | `cloud` を設定するとプロセス監視を無効化 | オプション |
+| `DATABASE_PATH` | SQLiteファイルのパス | オプション |
+
+### Railway環境変数の設定方法
+
+```bash
+# 必須: ダッシュボードパスワード
+railway variables set DASHBOARD_PASSWORD=your-secure-password
+
+# 必須: Flaskセッション鍵
+railway variables set SECRET_KEY=your-random-secret-key-here
+
+# 推奨: API認証トークン
+railway variables set DASHBOARD_TOKEN=your-api-token
+
+# オプション: OpenAI API (Task Decomposer用)
+railway variables set OPENAI_API_KEY=sk-...
+
+# オプション: クラウドモード（プロセス監視無効化）
+railway variables set OSCAR_MODE=cloud
+```
