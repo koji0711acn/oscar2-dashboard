@@ -89,13 +89,14 @@ def _is_authenticated():
     if session.get("logged_in"):
         return True
 
-    # Localhost bypass
-    try:
-        config = load_config()
-        if config.get("oscar", {}).get("localhost_no_auth", True) and _is_localhost():
-            return True
-    except Exception:
-        pass
+    # Localhost bypass (only in local mode, not cloud)
+    if not CLOUD_MODE:
+        try:
+            config = load_config()
+            if config.get("oscar", {}).get("localhost_no_auth", True) and _is_localhost():
+                return True
+        except Exception:
+            pass
 
     # Token auth (API)
     token = _get_dashboard_token()
@@ -105,7 +106,11 @@ def _is_authenticated():
         if auth_header == f"Bearer {token}" or query_token == token:
             return True
 
-    # No password/token configured = open access
+    # In cloud mode, always require auth (no open access)
+    if CLOUD_MODE:
+        return False
+
+    # Local mode: no password/token configured = open access
     if not _get_dashboard_password() and not _get_dashboard_token():
         return True
 
@@ -273,14 +278,18 @@ def _build_project_list():
 @app.route("/login", methods=["GET", "POST"])
 def login():
     """Login page."""
+    expected = _get_dashboard_password()
     if request.method == "POST":
         password = request.form.get("password", "")
-        expected = _get_dashboard_password()
         if expected and password == expected:
             session.permanent = True
             session["logged_in"] = True
             return redirect(url_for("index"))
+        if not expected and CLOUD_MODE:
+            return render_template("login.html", error="DASHBOARD_PASSWORD not configured on server")
         return render_template("login.html", error="Incorrect password")
+    if CLOUD_MODE and not expected:
+        return render_template("login.html", error="DASHBOARD_PASSWORD not configured on server")
     return render_template("login.html", error=None)
 
 
@@ -292,7 +301,10 @@ def logout():
 
 @app.route("/")
 def index():
-    # If password is set and user not authenticated, redirect to login
+    # Cloud mode: always require authentication
+    if CLOUD_MODE and not _is_authenticated():
+        return redirect(url_for("login"))
+    # Local mode: require auth only if password is set
     if _get_dashboard_password() and not _is_authenticated():
         return redirect(url_for("login"))
 

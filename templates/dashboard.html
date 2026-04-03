@@ -333,7 +333,10 @@
     </div>
 </div>
 
-<p class="refresh-note">Auto-refresh: <span class="cd" id="cd">10</span>s</p>
+<p class="refresh-note">
+    Auto-refresh: <button class="btn btn-sm" id="ar-toggle" onclick="toggleAutoRefresh()" style="background:#37474f;color:#b0bec5;margin:0 6px">OFF</button>
+    <span id="ar-status" style="display:none">Next in <span class="cd" id="cd">30</span>s</span>
+</p>
 
 <script>
 // === Auth token management ===
@@ -542,8 +545,15 @@ function previewArtifact(proj,fname,display){
 function closePreview(){document.getElementById('art-preview').style.display='none';document.getElementById('art-iframe').src=''}
 function setPreviewWidth(){const w=document.getElementById('art-width').value;document.getElementById('art-iframe').style.width=w}
 
-// === Auto-refresh ===
-let cd=10;setInterval(()=>{cd--;const el=document.getElementById('cd');if(el)el.textContent=cd;if(cd<=0)location.reload()},1000);
+// === Auto-refresh (default OFF, 30s interval) ===
+let arEnabled=false;let cd=30;
+function toggleAutoRefresh(){
+    arEnabled=!arEnabled;cd=30;
+    document.getElementById('ar-toggle').textContent=arEnabled?'ON':'OFF';
+    document.getElementById('ar-toggle').style.background=arEnabled?'#1b5e20':'#37474f';
+    document.getElementById('ar-status').style.display=arEnabled?'inline':'none';
+}
+setInterval(()=>{if(!arEnabled)return;cd--;const el=document.getElementById('cd');if(el)el.textContent=cd;if(cd<=0)location.reload()},1000);
 </script>
 </body>
 </html>
