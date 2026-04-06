@@ -25,6 +25,7 @@
         <p class="error">{{ error }}</p>
         {% endif %}
         <form method="POST" action="/login">
+            <input type="hidden" name="next" value="{{ next_url or '/' }}">
             <input type="password" name="password" placeholder="Password" autofocus required>
             <button type="submit">Login</button>
         </form>

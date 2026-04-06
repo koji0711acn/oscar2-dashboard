@@ -123,6 +123,9 @@ def require_auth(f):
     def decorated(*args, **kwargs):
         if _is_authenticated():
             return f(*args, **kwargs)
+        # Browser requests get redirected to login; API requests get 401 JSON
+        if request.accept_mimetypes.best == "text/html":
+            return redirect(url_for("login", next=request.url))
         return jsonify({"error": "Unauthorized"}), 401
     return decorated
 
@@ -277,20 +280,21 @@ def _build_project_list():
 
 @app.route("/login", methods=["GET", "POST"])
 def login():
-    """Login page."""
+    """Login page with HTML form."""
     expected = _get_dashboard_password()
+    next_url = request.args.get("next") or request.form.get("next") or url_for("index")
     if request.method == "POST":
         password = request.form.get("password", "")
         if expected and password == expected:
             session.permanent = True
             session["logged_in"] = True
-            return redirect(url_for("index"))
+            return redirect(next_url)
         if not expected and CLOUD_MODE:
-            return render_template("login.html", error="DASHBOARD_PASSWORD not configured on server")
-        return render_template("login.html", error="Incorrect password")
+            return render_template("login.html", error="DASHBOARD_PASSWORD not configured on server", next_url=next_url)
+        return render_template("login.html", error="Incorrect password", next_url=next_url)
     if CLOUD_MODE and not expected:
-        return render_template("login.html", error="DASHBOARD_PASSWORD not configured on server")
-    return render_template("login.html", error=None)
+        return render_template("login.html", error="DASHBOARD_PASSWORD not configured on server", next_url=next_url)
+    return render_template("login.html", error=None, next_url=next_url)
 
 
 @app.route("/logout")
