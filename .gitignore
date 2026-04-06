@@ -6,3 +6,4 @@ oscar2.db
 *.bak*
 logs/
 orchestrator.log
+oscar2_pids/

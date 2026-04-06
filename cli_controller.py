@@ -17,6 +17,35 @@ from models import update_project_state, record_restart, log_event
 # Track child processes by project_id
 _processes = {}
 
+# PID file directory
+_PID_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "oscar2_pids")
+
+
+def _save_pid_file(project_id, pid):
+    """Save PID to oscar2_pids/{project_id}.pid."""
+    os.makedirs(_PID_DIR, exist_ok=True)
+    with open(os.path.join(_PID_DIR, f"{project_id}.pid"), "w") as f:
+        f.write(str(pid))
+
+
+def _remove_pid_file(project_id):
+    """Remove PID file for a project."""
+    path = os.path.join(_PID_DIR, f"{project_id}.pid")
+    try:
+        os.remove(path)
+    except OSError:
+        pass
+
+
+def read_pid_file(project_id):
+    """Read PID from file. Returns int or None."""
+    path = os.path.join(_PID_DIR, f"{project_id}.pid")
+    try:
+        with open(path) as f:
+            return int(f.read().strip())
+    except (OSError, ValueError):
+        return None
+
 
 def _find_claude_cmd():
     """Find the claude CLI executable, searching common Windows paths."""
@@ -98,6 +127,7 @@ def start(project_config, oscar_config, prompt_text=None):
             creationflags=creation_flags,
         )
         _processes[project_id] = proc
+        _save_pid_file(project_id, proc.pid)
         update_project_state(project_id, "RUNNING", proc.pid)
         log_event(project_id, "STARTED", f"PID={proc.pid}, cmd={claude_bin}")
         return proc.pid
@@ -117,23 +147,21 @@ def stop(project_config, oscar_config=None):
     proc = _processes.pop(project_id, None)
     if proc and proc.poll() is None:
         _terminate_process(proc.pid)
+        _remove_pid_file(project_id)
         update_project_state(project_id, "DEAD", None)
         log_event(project_id, "STOPPED", f"PID={proc.pid}")
         return True
 
-    # Try to find and kill by project path
-    if oscar_config:
-        from process_monitor import find_claude_process
-        project_path = os.path.join(
-            oscar_config["base_path"], project_config["path"]
-        )
-        pid = find_claude_process(project_path)
-        if pid:
-            _terminate_process(pid)
-            update_project_state(project_id, "DEAD", None)
-            log_event(project_id, "STOPPED", f"PID={pid}")
-            return True
+    # Try PID file
+    pid = read_pid_file(project_id)
+    if pid:
+        _terminate_process(pid)
+        _remove_pid_file(project_id)
+        update_project_state(project_id, "DEAD", None)
+        log_event(project_id, "STOPPED", f"PID={pid}")
+        return True
 
+    _remove_pid_file(project_id)
     update_project_state(project_id, "DEAD", None)
     return False
 
