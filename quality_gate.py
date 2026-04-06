@@ -5,7 +5,8 @@ import json
 import glob
 import logging
 from datetime import datetime, timedelta
-from process_monitor import find_claude_process
+from cli_controller import read_pid_file
+from process_monitor import _is_process_alive
 import models
 
 logger = logging.getLogger("oscar2.quality_gate")
@@ -39,11 +40,12 @@ def check_project_health(project_config, oscar_config):
         results["healthy"] = False
         return results
 
-    # Check 2: Process is alive
-    pid = find_claude_process(project_path)
+    # Check 2: Process is alive (via PID file)
+    pid = read_pid_file(project_id)
+    process_alive = pid is not None and _is_process_alive(pid)
     results["checks"]["process_alive"] = {
-        "passed": pid is not None,
-        "detail": f"PID={pid}" if pid else "No process found",
+        "passed": process_alive,
+        "detail": f"PID={pid}" if process_alive else "No process found",
     }
     if pid is None:
         results["healthy"] = False
